@@ -238,3 +238,19 @@ async def show_stats(call: CallbackQuery, bot: Bot):
     text = f"📊 Статистика: {period}\n📦 Заказов: {count}\n💰 Сумма: {int(total)}₽"
     await call.message.edit_text(text, reply_markup=back_kb("admin_sales"))
     await call.answer()
+
+# 🔧 ОТЛАДОЧНАЯ КОМАНДА — удалите после проверки!
+@router.message(Command("debug_admin"))
+async def debug_admin(msg: Message):
+    uid = msg.from_user.id
+    admin_list = [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
+    is_adm = str(uid) in admin_list
+    
+    text = (
+        f"🔍 Отладка админ-доступа:\n"
+        f"• Ваш ID: <code>{uid}</code>\n"
+        f"• admin_ids из config: <code>'{settings.admin_ids}'</code>\n"
+        f"• Распарсенный список: <code>{admin_list}</code>\n"
+        f"• Вы админ? <b>{'✅ Да' if is_adm else '❌ Нет'}</b>"
+    )
+    await msg.answer(text, parse_mode="HTML")
