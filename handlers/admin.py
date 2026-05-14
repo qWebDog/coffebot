@@ -1,6 +1,5 @@
-# handlers/admin.py
 import re
-import logging  # ← Обязательно!
+import logging
 from datetime import datetime
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
@@ -31,13 +30,13 @@ class AdminFSM(StatesGroup):
     sales = State()
 
 def is_admin(uid: int) -> bool:
-     #🔍 Отладка: раскомментируйте, чтобы видеть в логах
-     logging.info(f"🔐 is_admin check: uid={uid}, admin_ids='{settings.admin_ids}', result={str(uid) in [x.strip() for x in settings.admin_ids.split(',') if x.strip()]}")
-    
-    if not settings.admin_ids.strip():
-        return False  # Если admin_ids пустой — никто не админ
-    
-    return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
+    try:
+        raw = settings.admin_ids
+        if not raw:
+            return False
+        return str(uid) in [x.strip() for x in str(raw).split(",") if x.strip()]
+    except Exception:
+        return False
 
 async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None, parse_mode="HTML"):
     try:
@@ -77,8 +76,10 @@ async def upd_photo_save(msg: Message, state: FSMContext, bot: Bot):
     await db.set_setting("order_preview_photo", photo_id)
     data = await state.get_data()
     await safe_edit(bot, msg.chat.id, data["msg_id"], "✅ Фото заказа обновлено!\nраздел: меню", admin_menu_kb())
-    try: await msg.delete()
-    except: pass
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 @router.callback_query(F.data == "admin_add_cat")
 async def add_cat_start(call: CallbackQuery, state: FSMContext, bot: Bot):
@@ -95,8 +96,10 @@ async def add_cat_save(msg: Message, state: FSMContext, bot: Bot):
         await safe_edit(bot, msg.chat.id, data["msg_id"], f"✅ Категория '{msg.text.strip()}' добавлена!\nраздел: меню", admin_menu_kb())
     except Exception:
         await msg.answer("❌ Категория с таким именем уже существует")
-    try: await msg.delete()
-    except: pass
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 @router.callback_query(F.data == "admin_add_drink")
 async def add_drink_start(call: CallbackQuery, state: FSMContext, bot: Bot):
@@ -113,7 +116,8 @@ async def add_drink_name(call: CallbackQuery, state: FSMContext, bot: Bot):
     cat_id = int(call.data.split("_")[-1])
     await state.update_data({"drink_cat_id": cat_id, "chat_id": call.from_user.id, "msg_id": call.message.message_id})
     await state.set_state(AdminFSM.add_drink_name)
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "📝 Введите название напитка:", back_kb("admin_add_drink"))
+    txt = "📝 Введите название напитка:"
+    await safe_edit(bot, call.from_user.id, call.message.message_id, txt, back_kb("admin_add_drink"))
     await call.answer()
 
 @router.message(AdminFSM.add_drink_name)
@@ -121,18 +125,24 @@ async def proc_drink_name(msg: Message, state: FSMContext, bot: Bot):
     await state.update_data({"drink_name": msg.text.strip()})
     await state.set_state(AdminFSM.add_drink_volume)
     data = await state.get_data()
-    await safe_edit(bot, data["chat_id"], data["msg_id"], "📏 Введите объем (напр. 300мл):", back_kb("admin_add_drink"))
-    try: await msg.delete()
-    except: pass
+    txt = "📏 Введите объем (напр. 300мл):"
+    await safe_edit(bot, data["chat_id"], data["msg_id"], txt, back_kb("admin_add_drink"))
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 @router.message(AdminFSM.add_drink_volume)
 async def proc_drink_volume(msg: Message, state: FSMContext, bot: Bot):
     await state.update_data({"drink_volume": msg.text.strip()})
     await state.set_state(AdminFSM.add_drink_price)
     data = await state.get_data()
-    await safe_edit(bot, data["chat_id"], data["msg_id"], "💰 Введите цену (число):", back_kb("admin_add_drink"))
-    try: await msg.delete()
-    except: pass
+    txt = "💰 Введите цену (число):"
+    await safe_edit(bot, data["chat_id"], data["msg_id"], txt, back_kb("admin_add_drink"))
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 @router.message(AdminFSM.add_drink_price)
 async def proc_drink_price(msg: Message, state: FSMContext, bot: Bot):
@@ -141,14 +151,12 @@ async def proc_drink_price(msg: Message, state: FSMContext, bot: Bot):
     await state.update_data({"drink_price": float(msg.text.strip())})
     await state.set_state(AdminFSM.add_drink_confirm)
     data = await state.get_data()
-    preview = (f"🥤 Проверка данных:\n"
-               f"• Категория ID: {data['drink_cat_id']}\n"
-               f"• Название: {data['drink_name']}\n"
-               f"• Объем: {data['drink_volume']}\n"
-               f"• Цена: {data['drink_price']}₽")
+    preview = f"🥤 Проверка данных:\n• Категория ID: {data['drink_cat_id']}\n• Название: {data['drink_name']}\n• Объем: {data['drink_volume']}\n• Цена: {data['drink_price']}₽"
     await safe_edit(bot, msg.chat.id, data["msg_id"], preview, admin_confirm_kb())
-    try: await msg.delete()
-    except: pass
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 @router.callback_query(F.data == "admin_save_drink")
 async def save_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
@@ -185,38 +193,36 @@ async def prompt_edit_field(call: CallbackQuery, state: FSMContext, bot: Bot):
     field = call.data.split("_")[2]
     await state.update_data({"edit_field": field})
     await state.set_state(AdminFSM.edit_drink_wait)
-    prompts = {
-        "name": "📝 Введите новое название:",
-        "price": "💰 Введите новую цену (число):",
-        "volume": "📏 Введите новый объем:"
-    }
-    await safe_edit(bot, call.from_user.id, call.message.message_id, prompts.get(field, "Введите значение:"), back_kb("admin_edit_drinks"))
+    prompts = {"name": "📝 Введите новое название:", "price": "💰 Введите новую цену (число):", "volume": "📏 Введите новый объем:"}
+    txt = prompts.get(field, "Введите значение:")
+    await safe_edit(bot, call.from_user.id, call.message.message_id, txt, back_kb("admin_edit_drinks"))
     await call.answer()
 
 @router.message(AdminFSM.edit_drink_wait)
 async def apply_edit(msg: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     field, item_id = data["edit_field"], data["edit_id"]
-    
     if field == "price":
         if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()):
             return await msg.answer("❌ Введите корректное число")
         val = float(msg.text.strip())
     else:
         val = msg.text.strip()
-
     await db.update_menu_item(item_id, field, val)
     drinks = await db.get_menu_items()
     await safe_edit(bot, msg.chat.id, data["msg_id"], "✅ Поле обновлено!\n✏️ Выберите напиток:", admin_drinks_kb(drinks))
-    try: await msg.delete()
-    except: pass
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 @router.callback_query(F.data.startswith("admin_del_drink_"))
 async def delete_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
     item_id = int(call.data.split("_")[-1])
     await db.delete_menu_item(item_id)
     drinks = await db.get_menu_items()
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "🗑 Удалено!\n✏️ Выберите напиток:", admin_drinks_kb(drinks) if drinks else back_kb("admin_menu"))
+    kb = admin_drinks_kb(drinks) if drinks else back_kb("admin_menu")
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "🗑 Удалено!\n✏️ Выберите напиток:", kb)
     await call.answer()
 
 @router.callback_query(F.data == "admin_sales")
@@ -230,27 +236,9 @@ async def show_stats(call: CallbackQuery, bot: Bot):
     period = call.data.split("_")[-1]
     now = datetime.now()
     start = now.replace(hour=0, minute=0, second=0) if period == "today" else now.replace(day=1, hour=0, minute=0, second=0)
-
     stats = await db.get_sales_stats(start.strftime("%Y-%m-%d %H:%M:%S"), now.strftime("%Y-%m-%d %H:%M:%S"))
     count = sum(r[1] for r in stats)
     total = sum(r[2] for r in stats)
-
     text = f"📊 Статистика: {period}\n📦 Заказов: {count}\n💰 Сумма: {int(total)}₽"
     await call.message.edit_text(text, reply_markup=back_kb("admin_sales"))
     await call.answer()
-
-# 🔧 ОТЛАДОЧНАЯ КОМАНДА — удалите после проверки!
-@router.message(Command("debug_admin"))
-async def debug_admin(msg: Message):
-    uid = msg.from_user.id
-    admin_list = [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
-    is_adm = str(uid) in admin_list
-    
-    text = (
-        f"🔍 Отладка админ-доступа:\n"
-        f"• Ваш ID: <code>{uid}</code>\n"
-        f"• admin_ids из config: <code>'{settings.admin_ids}'</code>\n"
-        f"• Распарсенный список: <code>{admin_list}</code>\n"
-        f"• Вы админ? <b>{'✅ Да' if is_adm else '❌ Нет'}</b>"
-    )
-    await msg.answer(text, parse_mode="HTML")
