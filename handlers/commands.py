@@ -1,3 +1,4 @@
+# handlers/commands.py
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -15,9 +16,27 @@ async def cmd_start(message: Message):
             "📭 Меню пока пусто.\nАдминистратор скоро добавит напитки ☕"
         )
     
-    await message.answer_photo(
-        photo=menu_items[0]["photo_id"],
-        caption="☕ *Добро пожаловать!* Выберите напиток:",
-        reply_markup=menu_keyboard(menu_items),
-        parse_mode="Markdown"
-    )
+    # 🔍 Берём первое фото, которое НЕ None
+    photo_id = None
+    for item in menu_items:
+        if item.get("photo_id"):
+            photo_id = item["photo_id"]
+            break
+    
+    caption = "☕ *Добро пожаловать!* Выберите напиток:"
+    
+    if photo_id:
+        # ✅ Отправляем с фото
+        await message.answer_photo(
+            photo=photo_id,
+            caption=caption,
+            reply_markup=menu_keyboard(menu_items),
+            parse_mode="Markdown"
+        )
+    else:
+        # ⚠️ Фолбэк: если ни у одного товара нет фото
+        await message.answer(
+            caption,
+            reply_markup=menu_keyboard(menu_items),
+            parse_mode="Markdown"
+        )
