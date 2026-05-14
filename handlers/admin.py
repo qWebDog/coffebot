@@ -71,20 +71,22 @@ async def open_menu(call: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "admin_upd_order_photo")
 async def upd_photo_start(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.upd_order_photo)
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "📸 Отправьте новое фото для сообщений с заказом:", back_kb("admin_menu"))
+    await safe_edit(bot, call.from_user.id, call.message.message_id, 
+                   "📸 Отправьте фото для сообщения /start (меню кофейни):", 
+                   back_kb("admin_menu"))
     await call.answer()
 
 @router.message(AdminFSM.upd_order_photo, F.photo)
 async def upd_photo_save(msg: Message, state: FSMContext, bot: Bot):
     photo_id = msg.photo[-1].file_id
-    await db.set_setting("order_preview_photo", photo_id)
+    # ✅ Сохраняем как "menu_photo" для команды /start
+    await db.set_setting("menu_photo", photo_id)
     data = await state.get_data()
-    await safe_edit(bot, msg.chat.id, data["msg_id"], "✅ Фото заказа обновлено!\nраздел: меню", admin_menu_kb())
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-
+    await safe_edit(bot, msg.chat.id, data["msg_id"], 
+                   "✅ Фото меню обновлено!\nраздел: меню", admin_menu_kb())
+    try: await msg.delete()
+    except: pass
+        
 @router.callback_query(F.data == "admin_add_cat")
 async def add_cat_start(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.add_cat_name)
