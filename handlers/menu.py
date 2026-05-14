@@ -34,11 +34,19 @@ async def add_item(call: CallbackQuery, bot: Bot, state: FSMContext):
     )
 
     if not cart:
-        sent = await call.message.answer("🛒 Корзина", reply_markup=cart_keyboard())
+        # Берем фото из настроек или первое из меню
+        order_photo = await db.get_setting("order_preview_photo")
+        if not order_photo and menu:
+            order_photo = menu[0]["photo_id"]
+            
+        if order_photo:
+            sent = await call.message.answer_photo(photo=order_photo, caption="🛒 Корзина", reply_markup=cart_keyboard())
+        else:
+            sent = await call.message.answer("🛒 Корзина", reply_markup=cart_keyboard())
         chat_id, msg_id = call.from_user.id, sent.message_id
     else:
         chat_id, msg_id = cart["chat_id"], cart["message_id"]
-
+        
     await db.save_cart(call.from_user.id, items, total, chat_id, msg_id)
     await call.answer(f"➕ {item['name']} добавлен")
     
