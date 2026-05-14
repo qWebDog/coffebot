@@ -7,8 +7,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 from keyboards.admin import (
-    admin_main_kb, admin_menu_kb, admin_categories_kb,
-    admin_confirm_kb, admin_sales_kb, back_kb
+    admin_main_kb, admin_menu_kb, admin_categories_kb, admin_drinks_kb,
+    admin_edit_drink_kb, admin_confirm_kb, admin_sales_kb, back_kb
 )
 from db.database import db
 from config import settings
@@ -23,7 +23,9 @@ class AdminFSM(StatesGroup):
     add_drink_name = State()
     add_drink_volume = State()
     add_drink_price = State()
+    add_drink_confirm = State()
     upd_order_photo = State()
+    edit_drink_wait = State()
     sales = State()
 
 def is_admin(uid: int) -> bool:
@@ -131,7 +133,7 @@ async def proc_drink_price(msg: Message, state: FSMContext, bot: Bot):
     if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()):
         return await msg.answer("❌ Введите корректное число")
     await state.update_data({"drink_price": float(msg.text.strip())})
-    await state.set_state(AdminFSM.add_drink_confirm) # Переходим на шаг подтверждения, но msg_id сохраняем
+    await state.set_state(AdminFSM.add_drink_confirm)
     data = await state.get_data()
     preview = (f"🥤 Проверка данных:\n"
                f"• Категория ID: {data['drink_cat_id']}\n"
@@ -145,11 +147,7 @@ async def proc_drink_price(msg: Message, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "admin_save_drink")
 async def save_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    await db.conn.execute(
-        "INSERT INTO menu_items (category_id, name, price, volume) VALUES (?,?,?,?)",
-        (data["drink_cat_id"], data["drink_name"], data["drink_price"], data["drink_volume"])
-    )
-    await db.conn.commit()
+    await db.add_menu_item(data["drink_cat_id"], data["drink_name"], data["drink_price"], data["drink_volume"])
     await state.set_state(AdminFSM.menu)
     await safe_edit(bot, call.from_user.id, call.message.message_id, "✅ Напиток сохранён!\nраздел: меню", admin_menu_kb())
     await call.answer()
@@ -158,6 +156,62 @@ async def save_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
 async def cancel_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.menu)
     await safe_edit(bot, call.from_user.id, call.message.message_id, "❌ Отменено.\nраздел: меню", admin_menu_kb())
+    await call.answer()
+
+# ✏️ Редактировать напитки
+@router.callback_query(F.data == "admin_edit_drinks")
+async def open_edit_drinks(call: CallbackQuery, state: FSMContext, bot: Bot):
+    drinks = await db.get_menu_items()
+    if not drinks:
+        await call.answer("⚠️ Меню пусто", show_alert=True)
+        return
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "✏️ Выберите напиток для редактирования:", admin_drinks_kb(drinks))
+    await call.answer()
+
+@router.callback_query(F.data.startswith("admin_edit_drink_"))
+async def select_drink_to_edit(call: CallbackQuery, state: FSMContext, bot: Bot):
+    item_id = int(call.data.split("_")[-1])
+    await state.update_data({"edit_id": item_id, "chat_id": call.from_user.id, "msg_id": call.message.message_id})
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "🛠 Выберите поле для изменения:", admin_edit_drink_kb(item_id))
+    await call.answer()
+
+@router.callback_query(F.data.startswith("admin_upd_"))
+async def prompt_edit_field(call: CallbackQuery, state: FSMContext, bot: Bot):
+    field = call.data.split("_")[2]
+    await state.update_data({"edit_field": field})
+    await state.set_state(AdminFSM.edit_drink_wait)
+    prompts = {
+        "name": "📝 Введите новое название:",
+        "price": "💰 Введите новую цену (число):",
+        "volume": "📏 Введите новый объем:"
+    }
+    await safe_edit(bot, call.from_user.id, call.message.message_id, prompts.get(field, "Введите значение:"), back_kb("admin_edit_drinks"))
+    await call.answer()
+
+@router.message(AdminFSM.edit_drink_wait)
+async def apply_edit(msg: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    field, item_id = data["edit_field"], data["edit_id"]
+    
+    if field == "price":
+        if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()):
+            return await msg.answer("❌ Введите корректное число")
+        val = float(msg.text.strip())
+    else:
+        val = msg.text.strip()
+
+    await db.update_menu_item(item_id, field, val)
+    drinks = await db.get_menu_items()
+    await safe_edit(bot, msg.chat.id, data["msg_id"], "✅ Поле обновлено!\n✏️ Выберите напиток:", admin_drinks_kb(drinks))
+    try: await msg.delete()
+    except: pass
+
+@router.callback_query(F.data.startswith("admin_del_drink_"))
+async def delete_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
+    item_id = int(call.data.split("_")[-1])
+    await db.delete_menu_item(item_id)
+    drinks = await db.get_menu_items()
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "🗑 Удалено!\n✏️ Выберите напиток:", admin_drinks_kb(drinks) if drinks else back_kb("admin_menu"))
     await call.answer()
 
 # 📊 Продажи
