@@ -39,6 +39,12 @@ async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None, par
 
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
+    print(f"🔥 HANDLER TRIGGERED | user_id={msg.from_user.id} | admin_ids={settings.admin_ids}")
+    if not is_admin(msg.from_user.id):
+        return await msg.answer("🚫 Доступ запрещён")
+        
+@router.message(Command("admin"))
+async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
     if not is_admin(msg.from_user.id): return await msg.answer("🚫 Доступ запрещён")
     await state.set_state(AdminFSM.main)
     await state.update_data({"chat_id": msg.chat.id, "msg_id": msg.message_id})
