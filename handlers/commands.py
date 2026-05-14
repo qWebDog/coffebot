@@ -16,25 +16,20 @@ async def cmd_start(message: Message):
             "📭 Меню пока пусто.\nАдминистратор скоро добавит напитки ☕"
         )
     
-    # 🔍 Берём первое фото, которое НЕ None
-    photo_id = None
-    for item in menu_items:
-        if item.get("photo_id"):
-            photo_id = item["photo_id"]
-            break
+    # 🖼 Берём общее фото меню из настроек
+    menu_photo = await db.get_setting("menu_photo")
     
     caption = "☕ *Добро пожаловать!* Выберите напиток:"
     
-    if photo_id:
-        # ✅ Отправляем с фото
+    if menu_photo:
         await message.answer_photo(
-            photo=photo_id,
+            photo=menu_photo,
             caption=caption,
             reply_markup=menu_keyboard(menu_items),
             parse_mode="Markdown"
         )
     else:
-        # ⚠️ Фолбэк: если ни у одного товара нет фото
+        # Фолбэк: если админ ещё не загрузил фото меню
         await message.answer(
             caption,
             reply_markup=menu_keyboard(menu_items),
