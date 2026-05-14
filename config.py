@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     webhook_url: str
     bot_username: str
     db_path: str = "coffee_bot.db"
-    admin_ids: str = "123456789"  # ID админов через запятую
+    admin_ids: str = "673594120"  # ID админов через запятую
     admin_chat_id: int | None = None
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
