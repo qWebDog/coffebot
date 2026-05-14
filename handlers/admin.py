@@ -242,3 +242,12 @@ async def show_stats(call: CallbackQuery, bot: Bot):
     text = f"📊 Статистика: {period}\n📦 Заказов: {count}\n💰 Сумма: {int(total)}₽"
     await call.message.edit_text(text, reply_markup=back_kb("admin_sales"))
     await call.answer()
+
+@router.message(Command("debug_id"))
+async def debug_id(msg: Message):
+    await msg.answer(
+        f"🆔 Ваш ID: <code>{msg.from_user.id}</code>\n"
+        f"🔑 Ожидается в config: <code>{settings.admin_ids}</code>\n"
+        f"✅ Совпадение: <b>{str(msg.from_user.id) == settings.admin_ids}</b>",
+        parse_mode="HTML"
+    )
