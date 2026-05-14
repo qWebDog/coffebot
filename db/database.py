@@ -14,35 +14,31 @@ class Database:
         if self.conn:
             await self.conn.close()
 
-    async def init_tables(self):
-        # 1️⃣ Создаём таблицы (если их нет)
+        async def init_tables(self):
         await self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS carts (
-                user_id INTEGER PRIMARY KEY, items TEXT, total REAL,
-                chat_id INTEGER, message_id INTEGER
+                user_id INTEGER PRIMARY KEY, items TEXT, total REAL, chat_id INTEGER, message_id INTEGER
             );
             CREATE TABLE IF NOT EXISTS orders (
                 id TEXT PRIMARY KEY, user_id INTEGER, items TEXT, total REAL,
                 status TEXT DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 customer_username TEXT
             );
+            CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE);
             CREATE TABLE IF NOT EXISTS menu_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price REAL, volume TEXT,
-                photo_file_id TEXT, is_active INTEGER DEFAULT 1
+                id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT, price REAL, 
+                volume TEXT, photo_file_id TEXT, is_active INTEGER DEFAULT 1,
+                FOREIGN KEY(category_id) REFERENCES categories(id)
             );
+            CREATE TABLE IF NOT EXISTS bot_settings (key TEXT PRIMARY KEY, value TEXT);
         """)
-
-        # 2️⃣ Миграция: добавляем колонку, если её нет в старой БД
         try:
             cur = await self.conn.execute("PRAGMA table_info(orders)")
-            columns = [row[1] for row in await cur.fetchall()]
-            if "customer_username" not in columns:
+            cols = [r[1] for r in await cur.fetchall()]
+            if "customer_username" not in cols:
                 await self.conn.execute("ALTER TABLE orders ADD COLUMN customer_username TEXT DEFAULT NULL")
                 await self.conn.commit()
-                print("✅ Миграция БД: добавлена колонка customer_username")
-        except Exception as e:
-            print(f"⚠️ Ошибка миграции БД: {e}")
-
+        except: pass
         await self.conn.commit()
 
     async def get_menu_items(self) -> list[dict]:
