@@ -56,10 +56,12 @@ class Database:
         )
         await self.conn.commit()
 
-    async def init_tables(self):
+        async def init_tables(self):
+        # 1️⃣ Создаём таблицы (если их нет)
         await self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS carts (
-                user_id INTEGER PRIMARY KEY, items TEXT, total REAL, chat_id INTEGER, message_id INTEGER
+                user_id INTEGER PRIMARY KEY, items TEXT, total REAL, 
+                chat_id INTEGER, message_id INTEGER
             );
             CREATE TABLE IF NOT EXISTS orders (
                 id TEXT PRIMARY KEY, user_id INTEGER, items TEXT, total REAL,
@@ -71,6 +73,18 @@ class Database:
                 photo_file_id TEXT, is_active INTEGER DEFAULT 1
             );
         """)
+
+        # 2️⃣ Миграция: добавляем колонку, если её нет в старой БД
+        try:
+            cur = await self.conn.execute("PRAGMA table_info(orders)")
+            columns = [row[1] for row in await cur.fetchall()]
+            if "customer_username" not in columns:
+                await self.conn.execute("ALTER TABLE orders ADD COLUMN customer_username TEXT DEFAULT NULL")
+                await self.conn.commit()
+                print("✅ Миграция БД: добавлена колонка customer_username")
+        except Exception as e:
+            print(f"⚠️ Ошибка миграции БД: {e}")
+            
         await self.conn.commit()
 
     async def create_order(self, order_id: str, user_id: int, items: dict, total: float, username: str):
