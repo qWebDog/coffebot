@@ -31,7 +31,7 @@ class AdminFSM(StatesGroup):
     sales = State()
 
 def is_admin(uid: int) -> bool:
-     🔍 Отладка: раскомментируйте, чтобы видеть в логах
+     #🔍 Отладка: раскомментируйте, чтобы видеть в логах
      logging.info(f"🔐 is_admin check: uid={uid}, admin_ids='{settings.admin_ids}', result={str(uid) in [x.strip() for x in settings.admin_ids.split(',') if x.strip()]}")
     
     if not settings.admin_ids.strip():
