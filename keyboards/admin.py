@@ -2,29 +2,37 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def admin_main_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Добавить напиток", callback_data="admin_add")],
-        [InlineKeyboardButton(text="✏️ Редактировать меню", callback_data="admin_edit_list")],
-        [InlineKeyboardButton(text="📊 Сегодня", callback_data="admin_stats_today")],
-        [InlineKeyboardButton(text="📈 Месяц", callback_data="admin_stats_month")],
-        [InlineKeyboardButton(text="📅 Произвольный (7д)", callback_data="admin_stats_custom")],
+        [InlineKeyboardButton(text="меню >", callback_data="admin_menu")],
+        [InlineKeyboardButton(text="продажи >", callback_data="admin_sales")]
     ])
 
-def admin_items_kb(items: list) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(inline_keyboard=[])
-    for i in items:
-        kb.inline_keyboard.append([InlineKeyboardButton(
-            text=f"{i['name']} | {i['volume']} | {i['price']}₽",
-            callback_data=f"admin_edit_{i['id']}"
-        )])
-    kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_main")])
+def admin_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="обновить фото заказа", callback_data="admin_upd_order_photo")],
+        [InlineKeyboardButton(text="добавить категорию", callback_data="admin_add_cat")],
+        [InlineKeyboardButton(text="добавить напиток", callback_data="admin_add_drink")],
+        [InlineKeyboardButton(text="назад", callback_data="admin_main")]
+    ])
+
+def admin_categories_kb(categories: list[dict]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=c["name"], callback_data=f"admin_sel_cat_{c['id']}")] for c in categories
+    ])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="назад", callback_data="admin_menu")])
     return kb
 
-def admin_edit_item_kb(item_id: int) -> InlineKeyboardMarkup:
+def admin_confirm_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Имя", callback_data=f"admin_upd_name_{item_id}")],
-        [InlineKeyboardButton(text="💰 Цена", callback_data=f"admin_upd_price_{item_id}")],
-        [InlineKeyboardButton(text="📏 Объем", callback_data=f"admin_upd_volume_{item_id}")],
-        [InlineKeyboardButton(text="🖼 Фото", callback_data=f"admin_upd_photo_{item_id}")],
-        [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"admin_del_{item_id}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_edit_list")],
+        [InlineKeyboardButton(text="✅ Сохранить", callback_data="admin_save_drink"),
+         InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel_drink")]
     ])
+
+def admin_sales_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="сегодня", callback_data="admin_stats_today")],
+        [InlineKeyboardButton(text="за месяц", callback_data="admin_stats_month")],
+        [InlineKeyboardButton(text="назад", callback_data="admin_main")]
+    ])
+
+def back_kb(callback: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="назад", callback_data=callback)]])
