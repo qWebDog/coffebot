@@ -1,6 +1,6 @@
 from uuid import uuid4
 from yookassa import Configuration, Payment
-from yookassa.domain.common import Receipt, ReceiptItem
+from yookassa.domain.models.receipt import Receipt, ReceiptItem
 from config import settings
 
 Configuration.account_id = settings.yookassa_shop_id
