@@ -107,4 +107,17 @@ class Database:
         cur = await self.conn.execute(query, (start, end))
         return await cur.fetchall()
 
+        async def get_categories(self) -> list[dict]:
+        cur = await self.conn.execute("SELECT id, name FROM categories ORDER BY id")
+        return [{"id": r[0], "name": r[1]} for r in await cur.fetchall()]
+
+    async def set_setting(self, key: str, value: str):
+        await self.conn.execute("INSERT OR REPLACE INTO bot_settings VALUES (?, ?)", (key, value))
+        await self.conn.commit()
+
+    async def get_setting(self, key: str) -> str | None:
+        cur = await self.conn.execute("SELECT value FROM bot_settings WHERE key=?", (key,))
+        res = await cur.fetchone()
+        return res[0] if res else None
+
 db = Database()
