@@ -15,13 +15,6 @@ from config import settings
 
 router = Router()
 
-@router.message(Command("admin"))
-async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
-    print(f"🔥 HANDLER TRIGGERED | user_id={msg.from_user.id} | admin_ids={settings.admin_ids}")
-    if not is_admin(msg.from_user.id):
-        return await msg.answer("🚫 Доступ запрещён")
-        
-
 class AdminFSM(StatesGroup):
     main = State()
     menu = State()
@@ -43,7 +36,6 @@ async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None, par
         await bot.edit_message_text(text=text, chat_id=chat_id, message_id=msg_id, reply_markup=kb, parse_mode=parse_mode)
     except TelegramBadRequest:
         pass
-
 
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
