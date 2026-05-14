@@ -8,59 +8,17 @@ class Database:
 
     async def connect(self):
         self.conn = await aiosqlite.connect(settings.db_path)
-        await self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS carts (
-                user_id INTEGER PRIMARY KEY,
-                items TEXT,
-                total REAL,
-                chat_id INTEGER,
-                message_id INTEGER
-            );
-            CREATE TABLE IF NOT EXISTS orders (
-                id TEXT PRIMARY KEY,
-                user_id INTEGER,
-                items TEXT,
-                total REAL,
-                status TEXT DEFAULT 'pending'
-            );
-        """)
-        await self.conn.commit()
+        await self.init_tables()
 
     async def close(self):
         if self.conn:
             await self.conn.close()
 
-    async def get_cart(self, user_id: int) -> dict | None:
-        cur = await self.conn.execute(
-            "SELECT items, total, chat_id, message_id FROM carts WHERE user_id=?", (user_id,)
-        )
-        row = await cur.fetchone()
-        if not row: return None
-        return {"items": json.loads(row[0]), "total": row[1], "chat_id": row[2], "message_id": row[3]}
-
-    async def save_cart(self, user_id: int, items: dict, total: float, chat_id: int, message_id: int):
-        await self.conn.execute(
-            "INSERT OR REPLACE INTO carts VALUES (?, ?, ?, ?, ?)",
-            (user_id, json.dumps(items), total, chat_id, message_id)
-        )
-        await self.conn.commit()
-
-    async def clear_cart(self, user_id: int):
-        await self.conn.execute("DELETE FROM carts WHERE user_id=?", (user_id,))
-        await self.conn.commit()
-
-    async def create_order(self, order_id: str, user_id: int, items: dict, total: float):
-        await self.conn.execute(
-            "INSERT INTO orders VALUES (?, ?, ?, ?, 'pending')",
-            (order_id, user_id, json.dumps(items), total)
-        )
-        await self.conn.commit()
-
-        async def init_tables(self):
+    async def init_tables(self):
         # 1️⃣ Создаём таблицы (если их нет)
         await self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS carts (
-                user_id INTEGER PRIMARY KEY, items TEXT, total REAL, 
+                user_id INTEGER PRIMARY KEY, items TEXT, total REAL,
                 chat_id INTEGER, message_id INTEGER
             );
             CREATE TABLE IF NOT EXISTS orders (
@@ -84,30 +42,9 @@ class Database:
                 print("✅ Миграция БД: добавлена колонка customer_username")
         except Exception as e:
             print(f"⚠️ Ошибка миграции БД: {e}")
-            
+
         await self.conn.commit()
 
-    async def create_order(self, order_id: str, user_id: int, items: dict, total: float, username: str):
-        await self.conn.execute(
-            "INSERT INTO orders (id, user_id, items, total, customer_username) VALUES (?, ?, ?, ?, ?)",
-            (order_id, user_id, json.dumps(items), total, username)
-        )
-        await self.conn.commit()
-
-    async def get_order(self, order_id: str) -> dict | None:
-        cur = await self.conn.execute("SELECT * FROM orders WHERE id=?", (order_id,))
-        row = await cur.fetchone()
-        if not row: return None
-        return {
-            "id": row[0], "user_id": row[1], "items": json.loads(row[2]),
-            "total": row[3], "status": row[4], "created_at": row[5], "username": row[6]
-        }
-
-    async def update_order_status(self, order_id: str, status: str):
-        await self.conn.execute("UPDATE orders SET status=? WHERE id=?", (status, order_id))
-        await self.conn.commit()
-
-    # 📦 Меню
     async def get_menu_items(self) -> list[dict]:
         cur = await self.conn.execute("SELECT id, name, price, volume, photo_file_id FROM menu_items WHERE is_active=1")
         rows = await cur.fetchall()
@@ -128,7 +65,43 @@ class Database:
         await self.conn.execute("UPDATE menu_items SET is_active=0 WHERE id=?", (item_id,))
         await self.conn.commit()
 
-    # 📊 Статистика
+    async def get_cart(self, user_id: int) -> dict | None:
+        cur = await self.conn.execute("SELECT items, total, chat_id, message_id FROM carts WHERE user_id=?", (user_id,))
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return {"items": json.loads(row[0]), "total": row[1], "chat_id": row[2], "message_id": row[3]}
+
+    async def save_cart(self, user_id: int, items: dict, total: float, chat_id: int, message_id: int):
+        await self.conn.execute("INSERT OR REPLACE INTO carts VALUES (?, ?, ?, ?, ?)",
+                                (user_id, json.dumps(items), total, chat_id, message_id))
+        await self.conn.commit()
+
+    async def clear_cart(self, user_id: int):
+        await self.conn.execute("DELETE FROM carts WHERE user_id=?", (user_id,))
+        await self.conn.commit()
+
+    async def create_order(self, order_id: str, user_id: int, items: dict, total: float, username: str):
+        await self.conn.execute(
+            "INSERT INTO orders (id, user_id, items, total, customer_username) VALUES (?, ?, ?, ?, ?)",
+            (order_id, user_id, json.dumps(items), total, username)
+        )
+        await self.conn.commit()
+
+    async def get_order(self, order_id: str) -> dict | None:
+        cur = await self.conn.execute("SELECT * FROM orders WHERE id=?", (order_id,))
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "user_id": row[1], "items": json.loads(row[2]),
+            "total": row[3], "status": row[4], "created_at": row[5], "username": row[6]
+        }
+
+    async def update_order_status(self, order_id: str, status: str):
+        await self.conn.execute("UPDATE orders SET status=? WHERE id=?", (status, order_id))
+        await self.conn.commit()
+
     async def get_sales_stats(self, start: str, end: str) -> list[tuple]:
         query = """
             SELECT date(created_at) as day, COUNT(*) as orders, SUM(total) as revenue
