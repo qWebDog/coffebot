@@ -36,13 +36,19 @@ async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None, par
         await bot.edit_message_text(text=text, chat_id=chat_id, message_id=msg_id, reply_markup=kb, parse_mode=parse_mode)
     except TelegramBadRequest:
         pass
-
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
-    if not is_admin(msg.from_user.id): return await msg.answer("🚫 Доступ запрещён")
+    logging.info(f"🔥 HANDLER /admin СРАБОТАЛ! user_id={msg.from_user.id}")
+    logging.info(f"⚙️ settings.admin_ids = '{settings.admin_ids}'")
+    
+    if not is_admin(msg.from_user.id):
+        logging.warning(f"🚫 Отказ в доступе для {msg.from_user.id}")
+        return await msg.answer("🚫 Доступ запрещён")
+        
     await state.set_state(AdminFSM.main)
     await state.update_data({"chat_id": msg.chat.id, "msg_id": msg.message_id})
     await safe_edit(bot, msg.chat.id, msg.message_id, "админ-панель", admin_main_kb())
+    logging.info("✅ Админ-панель открыта")
 
 @router.callback_query(F.data == "admin_main")
 async def back_main(call: CallbackQuery, state: FSMContext, bot: Bot):
