@@ -1,10 +1,3 @@
-@router.message(Command("admin"))
-async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
-    print(f"🔥 HANDLER TRIGGERED | user_id={msg.from_user.id} | admin_ids={settings.admin_ids}")
-    if not is_admin(msg.from_user.id):
-        return await msg.answer("🚫 Доступ запрещён")
-        
-
 import re
 from datetime import datetime
 from aiogram import Router, F, Bot
@@ -21,6 +14,13 @@ from db.database import db
 from config import settings
 
 router = Router()
+
+@router.message(Command("admin"))
+async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
+    print(f"🔥 HANDLER TRIGGERED | user_id={msg.from_user.id} | admin_ids={settings.admin_ids}")
+    if not is_admin(msg.from_user.id):
+        return await msg.answer("🚫 Доступ запрещён")
+        
 
 class AdminFSM(StatesGroup):
     main = State()
