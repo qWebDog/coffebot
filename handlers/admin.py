@@ -24,9 +24,16 @@ def is_admin(uid: int) -> bool:
     return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
 
 async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None):
-    try: await bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb)
-    except TelegramBadRequest: pass
-
+    try:
+        await bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=kb
+        )
+    except TelegramBadRequest:
+        pass
+        
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
     if not is_admin(msg.from_user.id): return await msg.answer("🚫 Доступ запрещён")
