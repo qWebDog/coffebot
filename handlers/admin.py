@@ -43,9 +43,13 @@ async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None, par
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
     if not is_admin(msg.from_user.id):
         return await msg.answer("🚫 Доступ запрещён")
+
+    # ✅ 1. Отправляем НОВОЕ сообщение от имени бота
+    sent = await msg.answer("админ-панель", reply_markup=admin_main_kb())
+
+    # ✅ 2. Сохраняем в состоянии ID ИМЕННО ЭТОГО сообщения
     await state.set_state(AdminFSM.main)
-    await state.update_data({"chat_id": msg.chat.id, "msg_id": msg.message_id})
-    await safe_edit(bot, msg.chat.id, msg.message_id, "админ-панель", admin_main_kb())
+    await state.update_data({"chat_id": msg.chat.id, "msg_id": sent.message_id})
 
 @router.callback_query(F.data == "admin_main")
 async def back_main(call: CallbackQuery, state: FSMContext, bot: Bot):
