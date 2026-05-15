@@ -20,7 +20,7 @@ def cart_keyboard(items: dict, menu: list, is_checkout: bool = False) -> InlineK
                 ])
         except: continue
 
-    kb.inline_keyboard.append([InlineKeyboardButton(text="━━━━━━━━━━", callback_data="cart_ignore")])
+    # ✅ Кнопка-разделитель убрана по запросу
 
     if is_checkout:
         kb.inline_keyboard.append([
