@@ -8,8 +8,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 from keyboards.admin import (
-    admin_main_kb, admin_menu_kb, admin_categories_kb, admin_drinks_kb,
-    admin_edit_drink_kb, admin_confirm_kb, admin_sales_kb, back_kb
+    admin_main_kb, admin_menu_kb, admin_extras_kb, admin_categories_kb,
+    admin_items_list_kb, admin_edit_item_kb, admin_confirm_kb, admin_sales_kb, back_kb
 )
 from db.database import db
 from config import settings
@@ -19,24 +19,19 @@ router = Router()
 class AdminFSM(StatesGroup):
     main = State()
     menu = State()
+    extras = State()
     add_cat_name = State()
-    add_drink_cat = State()
-    add_drink_name = State()
-    add_drink_volume = State()
-    add_drink_price = State()
-    add_drink_confirm = State()
-    upd_order_photo = State()
-    edit_drink_wait = State()
+    add_item_cat = State()
+    add_item_name = State()
+    add_item_volume = State()
+    add_item_price = State()
+    add_item_confirm = State()
+    edit_item_wait = State()
+    upd_photo = State()
     sales = State()
 
 def is_admin(uid: int) -> bool:
-    try:
-        raw = settings.admin_ids
-        if not raw:
-            return False
-        return str(uid) in [x.strip() for x in str(raw).split(",") if x.strip()]
-    except Exception:
-        return False
+    return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
 
 async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None, parse_mode="HTML"):
     try:
@@ -48,13 +43,9 @@ async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None, par
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
     if not is_admin(msg.from_user.id):
         return await msg.answer("🚫 Доступ запрещён")
-
-    # ✅ Отправляем НОВОЕ сообщение от бота (редактировать /admin пользователя нельзя)
-    sent = await msg.answer("админ-панель", reply_markup=admin_main_kb(), parse_mode="HTML")
-
     await state.set_state(AdminFSM.main)
-    # 💡 Сохраняем ID именно ЭТОГО сообщения, чтобы все дальнейшие кнопки редактировали его
-    await state.update_data({"chat_id": msg.chat.id, "msg_id": sent.message_id})
+    await state.update_data({"chat_id": msg.chat.id, "msg_id": msg.message_id})
+    await safe_edit(bot, msg.chat.id, msg.message_id, "админ-панель", admin_main_kb())
 
 @router.callback_query(F.data == "admin_main")
 async def back_main(call: CallbackQuery, state: FSMContext, bot: Bot):
@@ -68,25 +59,28 @@ async def open_menu(call: CallbackQuery, state: FSMContext, bot: Bot):
     await safe_edit(bot, call.from_user.id, call.message.message_id, "админ-панель\nраздел: меню", admin_menu_kb())
     await call.answer()
 
-@router.callback_query(F.data == "admin_upd_order_photo")
-async def upd_photo_start(call: CallbackQuery, state: FSMContext, bot: Bot):
-    await state.set_state(AdminFSM.upd_order_photo)
-    await safe_edit(bot, call.from_user.id, call.message.message_id, 
-                   "📸 Отправьте фото для сообщения /start (меню кофейни):", 
-                   back_kb("admin_menu"))
+@router.callback_query(F.data == "admin_extras")
+async def open_extras(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.set_state(AdminFSM.extras)
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "админ-панель\nраздел: дополнительно", admin_extras_kb())
     await call.answer()
 
-@router.message(AdminFSM.upd_order_photo, F.photo)
+# 📸 Обновить фото меню
+@router.callback_query(F.data == "admin_upd_order_photo")
+async def upd_photo_start(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.set_state(AdminFSM.upd_photo)
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "📸 Отправьте фото для /start:", back_kb("admin_menu"))
+    await call.answer()
+
+@router.message(AdminFSM.upd_photo, F.photo)
 async def upd_photo_save(msg: Message, state: FSMContext, bot: Bot):
-    photo_id = msg.photo[-1].file_id
-    # ✅ Сохраняем как "menu_photo" для команды /start
-    await db.set_setting("menu_photo", photo_id)
+    await db.set_setting("menu_photo", msg.photo[-1].file_id)
     data = await state.get_data()
-    await safe_edit(bot, msg.chat.id, data["msg_id"], 
-                   "✅ Фото меню обновлено!\nраздел: меню", admin_menu_kb())
+    await safe_edit(bot, msg.chat.id, data["msg_id"], "✅ Фото меню обновлено!\nраздел: меню", admin_menu_kb())
     try: await msg.delete()
     except: pass
-        
+
+# 📂 Добавить категорию
 @router.callback_query(F.data == "admin_add_cat")
 async def add_cat_start(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.add_cat_name)
@@ -100,137 +94,145 @@ async def add_cat_save(msg: Message, state: FSMContext, bot: Bot):
         await db.conn.commit()
         data = await state.get_data()
         await safe_edit(bot, msg.chat.id, data["msg_id"], f"✅ Категория '{msg.text.strip()}' добавлена!\nраздел: меню", admin_menu_kb())
-    except Exception:
-        await msg.answer("❌ Категория с таким именем уже существует")
-    try:
-        await msg.delete()
-    except Exception:
-        pass
+    except: await msg.answer("❌ Категория уже существует")
+    try: await msg.delete()
+    except: pass
 
-@router.callback_query(F.data == "admin_add_drink")
-async def add_drink_start(call: CallbackQuery, state: FSMContext, bot: Bot):
+# 🍹/🥐 Универсальный поток добавления (тип сохраняется в state)
+async def _start_add_item(call: CallbackQuery, state: FSMContext, bot: Bot, item_type: str, title: str, back_cb: str):
     cats = await db.get_categories()
     if not cats:
         await call.answer("⚠️ Сначала добавьте категорию!", show_alert=True)
         return
-    await state.set_state(AdminFSM.add_drink_cat)
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "🥤 Выберите категорию для напитка:", admin_categories_kb(cats))
+    await state.update_data({"item_type": item_type, "add_back_cb": back_cb})
+    await state.set_state(AdminFSM.add_item_cat)
+    await safe_edit(bot, call.from_user.id, call.message.message_id, f"🥤 Выберите категорию для {title}:", admin_categories_kb(cats))
     await call.answer()
+
+@router.callback_query(F.data == "admin_add_drink")
+async def add_drink_start(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await _start_add_item(call, state, bot, 'drink', 'напитка', 'admin_menu')
+
+@router.callback_query(F.data == "admin_add_extra")
+async def add_extra_start(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await _start_add_item(call, state, bot, 'extra', 'дополнения', 'admin_extras')
 
 @router.callback_query(F.data.startswith("admin_sel_cat_"))
-async def add_drink_name(call: CallbackQuery, state: FSMContext, bot: Bot):
+async def add_item_name(call: CallbackQuery, state: FSMContext, bot: Bot):
+    data = await state.get_data()
     cat_id = int(call.data.split("_")[-1])
-    await state.update_data({"drink_cat_id": cat_id, "chat_id": call.from_user.id, "msg_id": call.message.message_id})
-    await state.set_state(AdminFSM.add_drink_name)
-    txt = "📝 Введите название напитка:"
-    await safe_edit(bot, call.from_user.id, call.message.message_id, txt, back_kb("admin_add_drink"))
+    await state.update_data({"cat_id": cat_id, "chat_id": call.from_user.id, "msg_id": call.message.message_id})
+    await state.set_state(AdminFSM.add_item_name)
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "📝 Введите название:", back_kb(data.get("add_back_cb", "admin_main")))
     await call.answer()
 
-@router.message(AdminFSM.add_drink_name)
-async def proc_drink_name(msg: Message, state: FSMContext, bot: Bot):
-    await state.update_data({"drink_name": msg.text.strip()})
-    await state.set_state(AdminFSM.add_drink_volume)
+@router.message(AdminFSM.add_item_name)
+async def proc_name(msg: Message, state: FSMContext, bot: Bot):
+    await state.update_data({"item_name": msg.text.strip()})
+    await state.set_state(AdminFSM.add_item_volume)
     data = await state.get_data()
-    txt = "📏 Введите объем (напр. 300мл):"
-    await safe_edit(bot, data["chat_id"], data["msg_id"], txt, back_kb("admin_add_drink"))
-    try:
-        await msg.delete()
-    except Exception:
-        pass
+    await safe_edit(bot, data["chat_id"], data["msg_id"], "📏 Введите объем (напр. 300мл):", back_kb(data.get("add_back_cb", "admin_main")))
+    try: await msg.delete()
+    except: pass
 
-@router.message(AdminFSM.add_drink_volume)
-async def proc_drink_volume(msg: Message, state: FSMContext, bot: Bot):
-    await state.update_data({"drink_volume": msg.text.strip()})
-    await state.set_state(AdminFSM.add_drink_price)
+@router.message(AdminFSM.add_item_volume)
+async def proc_volume(msg: Message, state: FSMContext, bot: Bot):
+    await state.update_data({"item_volume": msg.text.strip()})
+    await state.set_state(AdminFSM.add_item_price)
     data = await state.get_data()
-    txt = "💰 Введите цену (число):"
-    await safe_edit(bot, data["chat_id"], data["msg_id"], txt, back_kb("admin_add_drink"))
-    try:
-        await msg.delete()
-    except Exception:
-        pass
+    await safe_edit(bot, data["chat_id"], data["msg_id"], "💰 Введите цену (число):", back_kb(data.get("add_back_cb", "admin_main")))
+    try: await msg.delete()
+    except: pass
 
-@router.message(AdminFSM.add_drink_price)
-async def proc_drink_price(msg: Message, state: FSMContext, bot: Bot):
+@router.message(AdminFSM.add_item_price)
+async def proc_price(msg: Message, state: FSMContext, bot: Bot):
     if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()):
         return await msg.answer("❌ Введите корректное число")
-    await state.update_data({"drink_price": float(msg.text.strip())})
-    await state.set_state(AdminFSM.add_drink_confirm)
+    await state.update_data({"item_price": float(msg.text.strip())})
+    await state.set_state(AdminFSM.add_item_confirm)
     data = await state.get_data()
-    preview = f"🥤 Проверка данных:\n• Категория ID: {data['drink_cat_id']}\n• Название: {data['drink_name']}\n• Объем: {data['drink_volume']}\n• Цена: {data['drink_price']}₽"
+    preview = f"📋 Проверка:\n• Название: {data['item_name']}\n• Объем: {data['item_volume']}\n• Цена: {data['item_price']}₽"
     await safe_edit(bot, msg.chat.id, data["msg_id"], preview, admin_confirm_kb())
-    try:
-        await msg.delete()
-    except Exception:
-        pass
+    try: await msg.delete()
+    except: pass
 
 @router.callback_query(F.data == "admin_save_drink")
-async def save_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
+async def save_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    await db.add_menu_item(data["drink_cat_id"], data["drink_name"], data["drink_price"], data["drink_volume"])
-    await state.set_state(AdminFSM.menu)
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "✅ Напиток сохранён!\nраздел: меню", admin_menu_kb())
+    await db.add_menu_item(data["cat_id"], data["item_name"], data["item_price"], data["item_volume"], item_type=data["item_type"])
+    back_cb = data.get("add_back_cb", "admin_main")
+    await state.set_state(AdminFSM.main)
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "✅ Сохранено!\nадмин-панель", admin_main_kb())
     await call.answer()
 
 @router.callback_query(F.data == "admin_cancel_drink")
-async def cancel_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
-    await state.set_state(AdminFSM.menu)
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "❌ Отменено.\nраздел: меню", admin_menu_kb())
+async def cancel_item(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.set_state(AdminFSM.main)
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "❌ Отменено.\nадмин-панель", admin_main_kb())
+    await call.answer()
+
+# ✏️ Редактирование напитков и дополнений
+async def _open_edit(call: CallbackQuery, state: FSMContext, bot: Bot, item_type: str, title: str, back_cb: str):
+    items = await db.get_menu_items(item_type)
+    if not items:
+        await call.answer("⚠️ Пусто", show_alert=True)
+        return
+    await state.update_data({"edit_type": item_type, "edit_back_cb": back_cb})
+    await safe_edit(bot, call.from_user.id, call.message.message_id, f"✏️ Редактирование: {title}", admin_items_list_kb(items, back_cb))
     await call.answer()
 
 @router.callback_query(F.data == "admin_edit_drinks")
-async def open_edit_drinks(call: CallbackQuery, state: FSMContext, bot: Bot):
-    drinks = await db.get_menu_items()
-    if not drinks:
-        await call.answer("⚠️ Меню пусто", show_alert=True)
-        return
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "✏️ Выберите напиток для редактирования:", admin_drinks_kb(drinks))
-    await call.answer()
+async def edit_drinks(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await _open_edit(call, state, bot, 'drink', 'напитки', 'admin_menu')
 
-@router.callback_query(F.data.startswith("admin_edit_drink_"))
-async def select_drink_to_edit(call: CallbackQuery, state: FSMContext, bot: Bot):
+@router.callback_query(F.data == "admin_edit_extras")
+async def edit_extras(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await _open_edit(call, state, bot, 'extra', 'дополнения', 'admin_extras')
+
+@router.callback_query(F.data.startswith("admin_edit_item_"))
+async def select_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     item_id = int(call.data.split("_")[-1])
     await state.update_data({"edit_id": item_id, "chat_id": call.from_user.id, "msg_id": call.message.message_id})
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "🛠 Выберите поле для изменения:", admin_edit_drink_kb(item_id))
+    data = await state.get_data()
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "🛠 Выберите поле:", admin_edit_item_kb(item_id, data.get("edit_back_cb", "admin_main")))
     await call.answer()
 
 @router.callback_query(F.data.startswith("admin_upd_"))
-async def prompt_edit_field(call: CallbackQuery, state: FSMContext, bot: Bot):
+async def prompt_field(call: CallbackQuery, state: FSMContext, bot: Bot):
     field = call.data.split("_")[2]
     await state.update_data({"edit_field": field})
-    await state.set_state(AdminFSM.edit_drink_wait)
-    prompts = {"name": "📝 Введите новое название:", "price": "💰 Введите новую цену (число):", "volume": "📏 Введите новый объем:"}
-    txt = prompts.get(field, "Введите значение:")
-    await safe_edit(bot, call.from_user.id, call.message.message_id, txt, back_kb("admin_edit_drinks"))
+    await state.set_state(AdminFSM.edit_item_wait)
+    data = await state.get_data()
+    prompts = {"name": "📝 Новое название:", "price": "💰 Новая цена:", "volume": "📏 Новый объем:"}
+    await safe_edit(bot, call.from_user.id, call.message.message_id, prompts.get(field, "Введите значение:"), back_kb(data.get("edit_back_cb", "admin_main")))
     await call.answer()
 
-@router.message(AdminFSM.edit_drink_wait)
+@router.message(AdminFSM.edit_item_wait)
 async def apply_edit(msg: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     field, item_id = data["edit_field"], data["edit_id"]
     if field == "price":
-        if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()):
-            return await msg.answer("❌ Введите корректное число")
+        if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()): return await msg.answer("❌ Число!")
         val = float(msg.text.strip())
     else:
         val = msg.text.strip()
     await db.update_menu_item(item_id, field, val)
-    drinks = await db.get_menu_items()
-    await safe_edit(bot, msg.chat.id, data["msg_id"], "✅ Поле обновлено!\n✏️ Выберите напиток:", admin_drinks_kb(drinks))
-    try:
-        await msg.delete()
-    except Exception:
-        pass
+    items = await db.get_menu_items(data["edit_type"])
+    await safe_edit(bot, msg.chat.id, data["msg_id"], "✅ Обновлено!", admin_items_list_kb(items, data["edit_back_cb"]))
+    try: await msg.delete()
+    except: pass
 
-@router.callback_query(F.data.startswith("admin_del_drink_"))
-async def delete_drink(call: CallbackQuery, state: FSMContext, bot: Bot):
+@router.callback_query(F.data.startswith("admin_del_item_"))
+async def delete_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     item_id = int(call.data.split("_")[-1])
     await db.delete_menu_item(item_id)
-    drinks = await db.get_menu_items()
-    kb = admin_drinks_kb(drinks) if drinks else back_kb("admin_menu")
-    await safe_edit(bot, call.from_user.id, call.message.message_id, "🗑 Удалено!\n✏️ Выберите напиток:", kb)
+    data = await state.get_data()
+    items = await db.get_menu_items(data["edit_type"])
+    kb = admin_items_list_kb(items, data["edit_back_cb"]) if items else back_kb(data["edit_back_cb"])
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "🗑 Удалено!", kb)
     await call.answer()
 
+# 📊 Продажи
 @router.callback_query(F.data == "admin_sales")
 async def open_sales(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.sales)
@@ -248,12 +250,3 @@ async def show_stats(call: CallbackQuery, bot: Bot):
     text = f"📊 Статистика: {period}\n📦 Заказов: {count}\n💰 Сумма: {int(total)}₽"
     await call.message.edit_text(text, reply_markup=back_kb("admin_sales"))
     await call.answer()
-
-@router.message(Command("debug_id"))
-async def debug_id(msg: Message):
-    await msg.answer(
-        f"🆔 Ваш ID: <code>{msg.from_user.id}</code>\n"
-        f"🔑 Ожидается в config: <code>{settings.admin_ids}</code>\n"
-        f"✅ Совпадение: <b>{str(msg.from_user.id) == settings.admin_ids}</b>",
-        parse_mode="HTML"
-    )
