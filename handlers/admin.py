@@ -1,4 +1,3 @@
-# handlers/admin.py
 import re, json
 from datetime import datetime
 from aiogram import Router, F, Bot
@@ -15,6 +14,9 @@ router = Router()
 
 class AdminFSM(StatesGroup):
     main = State()
+    menu = State()
+    sales = State()
+    volumes = State()
     add_drink_name = State()
     add_drink_vols = State()
     add_drink_prices = State()
@@ -25,70 +27,89 @@ def is_admin(uid: int) -> bool:
     return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
 
 async def safe_edit(bot: Bot, chat_id: int, msg_id: int, text: str, kb=None):
-    """Пытается отредактировать сообщение, при ошибке отправляет новое"""
     try:
-        return await bot.edit_message_text(
-            text=text,
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=kb
-        )
+        return await bot.edit_message_text(text=text, chat_id=chat_id, message_id=msg_id, reply_markup=kb)
     except TelegramBadRequest:
-        # Если сообщение удалено или старое — отправляем новое
         sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=kb)
-        return sent.message_id  # Возвращаем новый ID для обновления в state
+        return sent.message_id
     except Exception:
         return None
 
-async def get_msg_data(state: FSMContext) -> tuple[int, int]:
-    """Безопасное получение chat_id и msg_id из state"""
+async def update_state_msg(state: FSMContext, chat_id: int, msg_id: int):
     data = await state.get_data()
-    chat_id = data.get("chat_id")
-    msg_id = data.get("msg_id")
-    if not chat_id or not msg_id:
-        # Фолбэк: если данных нет, возвращаем ID текущего пользователя как заглушку
-        # В реальном использовании это должно обрабатываться вызывающим кодом
-        return None, None
-    return chat_id, msg_id
+    await state.update_data({"chat_id": chat_id, "msg_id": msg_id, **data})
 
+# 🔹 ГЛАВНОЕ МЕНЮ АДМИНКИ
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
     if not is_admin(msg.from_user.id):
         return await msg.answer("🚫 Доступ запрещён")
-    
     sent = await msg.answer("админ-панель", reply_markup=admin_main_kb())
     await state.set_state(AdminFSM.main)
-    await state.update_data({
-        "chat_id": msg.chat.id,
-        "msg_id": sent.message_id,
-        "admin_chat_id": msg.chat.id  # Дублируем для надёжности
-    })
+    await update_state_msg(state, msg.chat.id, sent.message_id)
 
 @router.callback_query(F.data == "admin_main")
 async def back_main(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.main)
-    # ✅ Всегда обновляем данные сообщения в state
-    await state.update_data({
-        "chat_id": call.from_user.id,
-        "msg_id": call.message.message_id
-    })
-    chat_id, msg_id = await get_msg_data(state)
-    if chat_id and msg_id:
-        await safe_edit(bot, chat_id, msg_id, "админ-панель", admin_main_kb())
+    await update_state_msg(state, call.from_user.id, call.message.message_id)
+    chat_id, msg_id = call.from_user.id, call.message.message_id
+    await safe_edit(bot, chat_id, msg_id, "админ-панель", admin_main_kb())
+    await call.answer()
+
+# 🔹 РАЗДЕЛ: МЕНЮ
+@router.callback_query(F.data == "admin_menu")
+async def open_menu_section(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.set_state(AdminFSM.menu)
+    await update_state_msg(state, call.from_user.id, call.message.message_id)
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "админ-панель\nраздел: меню", admin_menu_kb())
+    await call.answer()
+
+# 🔹 РАЗДЕЛ: ПРОДАЖИ
+@router.callback_query(F.data == "admin_sales")
+async def open_sales_section(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.set_state(AdminFSM.sales)
+    await update_state_msg(state, call.from_user.id, call.message.message_id)
+    
+    # Быстрая статика за сегодня
+    now = datetime.now()
+    start = now.replace(hour=0, minute=0, second=0)
+    stats = await db.get_sales_stats(start.strftime("%Y-%m-%d %H:%M:%S"), now.strftime("%Y-%m-%d %H:%M:%S"))
+    count = sum(r[1] for r in stats)
+    total = sum(r[2] for r in stats)
+    
+    text = f"📊 Статистика: сегодня\n📦 Заказов: {count}\n💰 Сумма: {int(total)}₽"
+    await safe_edit(bot, call.from_user.id, call.message.message_id, text, admin_sales_kb())
+    await call.answer()
+
+@router.callback_query(F.data.startswith("admin_stats_"))
+async def show_period_stats(call: CallbackQuery, bot: Bot):
+    period = call.data.split("_")[-1]
+    now = datetime.now()
+    start = now.replace(hour=0, minute=0, second=0) if period == "today" else now.replace(day=1, hour=0, minute=0, second=0)
+    stats = await db.get_sales_stats(start.strftime("%Y-%m-%d %H:%M:%S"), now.strftime("%Y-%m-%d %H:%M:%S"))
+    count = sum(r[1] for r in stats)
+    total = sum(r[2] for r in stats)
+    text = f"📊 Статистика: {period}\n📦 Заказов: {count}\n💰 Сумма: {int(total)}₽"
+    await call.message.edit_text(text, reply_markup=back_kb("admin_sales"))
+    await call.answer()
+
+# 🔹 РАЗДЕЛ: ОБЪЕМЫ
+@router.callback_query(F.data == "admin_volumes")
+async def open_volumes(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.set_state(AdminFSM.volumes)
+    await update_state_msg(state, call.from_user.id, call.message.message_id)
+    vols = await db.get_volumes()
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "админ-панель\nраздел: объемы", admin_volumes_kb(vols))
     await call.answer()
 
 # 📸 Фото меню
 @router.callback_query(F.data == "admin_upd_photo")
 async def upd_photo(call: CallbackQuery, state: FSMContext, bot: Bot):
-    await state.update_data({
-        "action": "upd_photo",
-        "chat_id": call.from_user.id,
-        "msg_id": call.message.message_id
-    })
+    await state.update_data({"action": "upd_photo", "chat_id": call.from_user.id, "msg_id": call.message.message_id})
     await safe_edit(bot, call.from_user.id, call.message.message_id, "📸 Отправьте фото для /start:", back_kb("admin_menu"))
     await call.answer()
 
-@router.message(F.photo, AdminFSM.main)
+@router.message(F.photo)
 async def handle_photo(msg: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     if data.get("action") == "upd_photo":
@@ -103,11 +124,7 @@ async def handle_photo(msg: Message, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "admin_add_drink")
 async def add_drink_name(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.add_drink_name)
-    await state.update_data({
-        "chat_id": call.from_user.id,
-        "msg_id": call.message.message_id,
-        "add_back": "admin_menu"
-    })
+    await state.update_data({"chat_id": call.from_user.id, "msg_id": call.message.message_id, "add_back": "admin_menu"})
     await safe_edit(bot, call.from_user.id, call.message.message_id, "📝 Введите название напитка:", back_kb("admin_menu"))
     await call.answer()
 
@@ -130,10 +147,8 @@ async def toggle_vol(call: CallbackQuery, state: FSMContext, bot: Bot):
     vid = int(call.data.split("_")[-1])
     data = await state.get_data()
     sel = data.get("selected_vols", [])
-    if vid in sel:
-        sel.remove(vid)
-    else:
-        sel.append(vid)
+    if vid in sel: sel.remove(vid)
+    else: sel.append(vid)
     await state.update_data({"selected_vols": sel})
     vols = await db.get_volumes()
     await call.message.edit_reply_markup(reply_markup=admin_toggle_volumes_kb(vols, sel))
@@ -172,13 +187,6 @@ async def proc_price(msg: Message, state: FSMContext, bot: Bot):
     except: pass
 
 # 📏 Управление объемами
-@router.callback_query(F.data == "admin_volumes")
-async def open_vols(call: CallbackQuery, bot: Bot):
-    await state.update_data({"chat_id": call.from_user.id, "msg_id": call.message.message_id})
-    vols = await db.get_volumes()
-    await call.message.edit_text("админ-панель\nраздел: объемы", reply_markup=admin_volumes_kb(vols))
-    await call.answer()
-
 @router.callback_query(F.data == "admin_create_vol")
 async def create_vol(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.add_vol_name)
