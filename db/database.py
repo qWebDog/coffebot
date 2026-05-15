@@ -28,36 +28,43 @@ class Database:
             CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE);
             CREATE TABLE IF NOT EXISTS menu_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT, price REAL,
-                volume TEXT, photo_file_id TEXT, is_active INTEGER DEFAULT 1,
-                FOREIGN KEY(category_id) REFERENCES categories(id)
+                volume TEXT, photo_file_id TEXT, is_active INTEGER DEFAULT 1
             );
             CREATE TABLE IF NOT EXISTS bot_settings (key TEXT PRIMARY KEY, value TEXT);
         """)
 
-        # Миграция customer_username для старых БД
+        # Миграция 1: customer_username
         try:
             cur = await self.conn.execute("PRAGMA table_info(orders)")
             cols = [r[1] for r in await cur.fetchall()]
             if "customer_username" not in cols:
                 await self.conn.execute("ALTER TABLE orders ADD COLUMN customer_username TEXT DEFAULT NULL")
                 await self.conn.commit()
-        except Exception:
-            pass
+        except: pass
+
+        # Миграция 2: item_type (drink/extra)
+        try:
+            await self.conn.execute("ALTER TABLE menu_items ADD COLUMN item_type TEXT DEFAULT 'drink'")
+            await self.conn.commit()
+        except: pass
+
         await self.conn.commit()
 
-    async def get_menu_items(self) -> list[dict]:
+    async def get_menu_items(self, item_type: str = 'drink') -> list[dict]:
         cur = await self.conn.execute("""
             SELECT m.id, c.name as category, m.name, m.price, m.volume, m.photo_file_id
             FROM menu_items m LEFT JOIN categories c ON m.category_id = c.id
-            WHERE m.is_active = 1 ORDER BY c.id, m.id
-        """)
+            WHERE m.is_active = 1 AND m.item_type = ? ORDER BY c.id, m.id
+        """, (item_type,))
         rows = await cur.fetchall()
         return [{"id": r[0], "category": r[1] or "Без категории", "name": r[2],
                  "price": r[3], "volume": r[4], "photo_id": r[5]} for r in rows]
 
-    async def add_menu_item(self, category_id: int, name: str, price: float, volume: str, photo_id: str = None):
-        await self.conn.execute("INSERT INTO menu_items (category_id, name, price, volume, photo_file_id) VALUES (?,?,?,?,?)",
-                                (category_id, name, price, volume, photo_id))
+    async def add_menu_item(self, category_id: int, name: str, price: float, volume: str, photo_id: str = None, item_type: str = 'drink'):
+        await self.conn.execute(
+            "INSERT INTO menu_items (category_id, name, price, volume, photo_file_id, item_type) VALUES (?,?,?,?,?,?)",
+            (category_id, name, price, volume, photo_id, item_type)
+        )
         await self.conn.commit()
 
     async def update_menu_item(self, item_id: int, field: str, value):
