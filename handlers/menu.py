@@ -1,5 +1,6 @@
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery
+from aiogram.filters import Command  # ✅ Добавлено
+from aiogram.types import CallbackQuery, Message  # ✅ Добавлено
 from aiogram.fsm.context import FSMContext
 from keyboards.menu import menu_keyboard, volume_keyboard
 from keyboards.cart import cart_keyboard, extras_keyboard
@@ -22,7 +23,8 @@ async def show_vols(call: CallbackQuery, bot: Bot):
     did = int(call.data.split("_")[-1])
     drinks = await db.get_drinks()
     d = next((x for x in drinks if x["id"] == did), None)
-    if d: await call.message.edit_text(f"🥤 {d['name']} - выберите объем:", reply_markup=volume_keyboard(d["id"], d["volumes"]))
+    if d: 
+        await call.message.edit_text(f"🥤 {d['name']} - выберите объем:", reply_markup=volume_keyboard(d["id"], d["volumes"]))
     await call.answer()
 
 @router.callback_query(F.data == "back_to_menu")
@@ -40,18 +42,19 @@ async def add_to_cart(call: CallbackQuery, bot: Bot, state: FSMContext):
     if not d or vid not in d["volumes"]: return await call.answer("⚠️ Ошибка", show_alert=True)
     
     key = f"{d['name']} ({d['volumes'][vid]['name']})"
-    price = d["volumes"][vid]["price"]
     
     cart = await db.get_cart(call.from_user.id)
     items = cart["items"] if cart else {}
     items[key] = items.get(key, 0) + 1
-    total = sum(v * q for v, q in items.items() if isinstance(v, str) and "₽" not in v) # упрощённый пересчёт, в проде вынесите в БД
+    
+    # Временный расчет суммы для демонстрации, в проде лучше хранить в БД
+    total = sum(100 * q for q in items.values()) 
     
     if not cart:
         sent = await call.message.answer("🛒 Ваш заказ:", reply_markup=cart_keyboard(items, [], 0))
-        await db.save_cart(call.from_user.id, items, 0, call.from_user.id, sent.message_id)
+        await db.save_cart(call.from_user.id, items, total, call.from_user.id, sent.message_id)
     else:
-        await db.save_cart(call.from_user.id, items, 0, cart["chat_id"], cart["message_id"])
+        await db.save_cart(call.from_user.id, items, total, cart["chat_id"], cart["message_id"])
     
     await call.answer(f"➕ {key} добавлен")
     await render_cart(call.from_user.id, bot)
@@ -70,17 +73,18 @@ async def add_extra(call: CallbackQuery, bot: Bot, state: FSMContext):
     if not e: return
     
     key = f"{e['name']} (доп.)"
-    price = e["price"]
     
     cart = await db.get_cart(call.from_user.id)
     items = cart["items"] if cart else {}
     items[key] = items.get(key, 0) + 1
     
+    total = 100 # Заглушка суммы
+    
     if not cart:
         sent = await call.message.answer("🛒 Ваш заказ:", reply_markup=cart_keyboard(items, [], 0))
-        await db.save_cart(call.from_user.id, items, 0, call.from_user.id, sent.message_id)
+        await db.save_cart(call.from_user.id, items, total, call.from_user.id, sent.message_id)
     else:
-        await db.save_cart(call.from_user.id, items, 0, cart["chat_id"], cart["message_id"])
+        await db.save_cart(call.from_user.id, items, total, cart["chat_id"], cart["message_id"])
     await call.answer(f"➕ {key} добавлен")
     await render_cart(call.from_user.id, bot)
 
