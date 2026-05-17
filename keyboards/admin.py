@@ -2,41 +2,38 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def admin_main_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="меню >", callback_data="admin_menu")],
-        [InlineKeyboardButton(text="объемы >", callback_data="admin_volumes")],
-        [InlineKeyboardButton(text="продажи >", callback_data="admin_sales")]
+        [InlineKeyboardButton(text="📂 Категории (фото/товары)", callback_data="admin_cats")],
+        [InlineKeyboardButton(text="📏 Объемы", callback_data="admin_vols")],
+        [InlineKeyboardButton(text="🥐 Допы", callback_data="admin_extras")],
+        [InlineKeyboardButton(text="📊 Продажи", callback_data="admin_sales")]
     ])
 
-def admin_menu_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="обновить фото", callback_data="admin_upd_photo")],
-        [InlineKeyboardButton(text="добавить напиток", callback_data="admin_add_drink")],
-        [InlineKeyboardButton(text="назад", callback_data="admin_main")]
-    ])
-
-def admin_volumes_kb(vols: list[dict]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{v['name']}", callback_data=f"admin_edit_vol_{v['id']}")] for v in vols
-    ])
-    kb.inline_keyboard.append([InlineKeyboardButton(text="➕ Создать объем", callback_data="admin_create_vol")])
-    kb.inline_keyboard.append([InlineKeyboardButton(text="назад", callback_data="admin_main")])
+def admin_cats_kb(cats: list[dict]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=c["name"], callback_data=f"admin_cat_{c['slug']}")] for c in cats])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_main")])
     return kb
 
-def admin_toggle_volumes_kb(vols: list[dict], selected: list[int]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(inline_keyboard=[])
-    for v in vols:
-        mark = "☑️" if v["id"] in selected else "☐"
-        kb.inline_keyboard.append([InlineKeyboardButton(text=f"{mark} {v['name']}", callback_data=f"vol_toggle_{v['id']}")])
-    kb.inline_keyboard.append([InlineKeyboardButton(text="✅ Далее", callback_data="vol_confirm")])
-    kb.inline_keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel")])
+def admin_cat_menu_kb(slug: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🖼 Заменить фото категории", callback_data=f"admin_photo_{slug}")],
+        [InlineKeyboardButton(text="➕ Добавить позицию", callback_data=f"admin_add_{slug}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cats")]
+    ])
+
+def admin_vols_kb(vols: list[dict]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=v["name"], callback_data=f"admin_vol_{v['id']}")] for v in vols])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="➕ Создать объем", callback_data="admin_create_vol"), InlineKeyboardButton(text="🔙 Назад", callback_data="admin_main")])
     return kb
 
-def admin_sales_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="сегодня", callback_data="admin_stats_today")],
-        [InlineKeyboardButton(text="за месяц", callback_data="admin_stats_month")],
-        [InlineKeyboardButton(text="назад", callback_data="admin_main")]
-    ])
+def admin_extras_kb(extras: list[dict]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"{e['name']} ({int(e['price'])}₽)", callback_data=f"admin_extra_{e['id']}")] for e in extras])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="➕ Добавить доп", callback_data="admin_add_extra"), InlineKeyboardButton(text="🔙 Назад", callback_data="admin_main")])
+    return kb
+
+def admin_toggle_vols_kb(vols: list[dict], selected: list[int]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"{'✅' if v['id'] in selected else '☐'} {v['name']}", callback_data=f"admin_vol_toggle_{v['id']}")] for v in vols])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="✅ Далее", callback_data="admin_vol_confirm")])
+    return kb
 
 def back_kb(cb: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="назад", callback_data=cb)]])
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=cb)]])
