@@ -53,8 +53,8 @@ async def prompt_menu_photo(call: CallbackQuery, state: FSMContext, bot: Bot):
 @router.message(F.photo, AdminFSM.set_menu_photo)
 async def save_menu_photo(msg: Message, state: FSMContext, bot: Bot):
     photo_id = msg.photo[-1].file_id
-    # Сохраняем как фото категории "coffee" (оно используется в /start)
-    await db.update_cat_photo("coffee", photo_id)
+    # ✅ Сохраняем в bot_settings с ключом "menu_photo", а не в категорию "coffee"
+    await db.set_setting("menu_photo", photo_id)
     
     data = await state.get_data()
     await state.set_state(AdminFSM.main)
