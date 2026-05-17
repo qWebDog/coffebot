@@ -1,3 +1,4 @@
+# handlers/user.py
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, InputMediaPhoto, InlineKeyboardMarkup, InlineKeyboardButton
@@ -36,16 +37,15 @@ async def render_cart(uid: int, bot: Bot, state: FSMContext):
 @router.message(Command("start"))
 async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
     cats = await db.get_categories()
-    # ✅ Ищем фото категории "coffee" безопасно
-    coffee_cat = next((c for c in cats if c["slug"] == "coffee"), None)
-    photo = coffee_cat["photo_id"] if coffee_cat and coffee_cat.get("photo_id") else None
+    # ✅ Берём фото из отдельной настройки "menu_photo", а не из категории "coffee"
+    menu_photo = await db.get_setting("menu_photo")
     
     text = "☕ *Добро пожаловать!* Выберите категорию:"
     kb = main_menu_kb(cats)
     
-    if photo:
+    if menu_photo:
         await msg.answer_photo(
-            photo=photo,
+            photo=menu_photo,
             caption=text,
             reply_markup=kb,
             parse_mode="Markdown"
@@ -63,12 +63,11 @@ async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "back_to_main")
 async def back_main(call: CallbackQuery, bot: Bot, state: FSMContext):
     cats = await db.get_categories()
-    coffee_cat = next((c for c in cats if c["slug"] == "coffee"), None)
-    photo = coffee_cat["photo_id"] if coffee_cat and coffee_cat.get("photo_id") else None
+    menu_photo = await db.get_setting("menu_photo")
     
-    if photo:
+    if menu_photo:
         await call.message.edit_media(
-            media=InputMediaPhoto(media=photo),
+            media=InputMediaPhoto(media=menu_photo),
             caption="☕ Выберите категорию:",
             reply_markup=main_menu_kb(cats)
         )
@@ -81,7 +80,8 @@ async def back_main(call: CallbackQuery, bot: Bot, state: FSMContext):
 
 @router.callback_query(F.data.startswith("cat_"))
 async def show_category(call: CallbackQuery, bot: Bot, state: FSMContext):
-    slug = call.data.split("_")[1]
+    # ✅ Исправлен парсинг slug: cat_non_coffee → "non_coffee"
+    slug = "_".join(call.data.split("_")[1:])
     cats = await db.get_categories()
     cat = next((c for c in cats if c["slug"] == slug), None)
     
@@ -127,7 +127,8 @@ async def select_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     if not vols:
         return await call.answer("⚠️ Нет доступных объемов", show_alert=True)
     
-    await call.message.edit_text("📏 Выберите объем:", reply_markup=item_volumes_kb(vols))
+    all_vols = await db.get_volumes()
+    await call.message.edit_text("📏 Выберите объем:", reply_markup=item_volumes_kb(vols, all_vols))
     await state.set_state(UserFSM.picking_volume)
     await call.answer()
 
@@ -199,8 +200,9 @@ async def finalize_add_to_cart(call: CallbackQuery, state: FSMContext, bot: Bot,
                 item_name = i.get("name", "Напиток")
                 break
                 
-    base_price = float(item_vols.get(str(vol_id), 0))
-    vol_name = next((v["name"] for v in await db.get_volumes() if v["id"] == vol_id), "Стандарт")
+    vol_data = item_vols.get(vol_id, {})
+    base_price = float(vol_data.get("price", 0))
+    vol_name = vol_data.get("name", "Стандарт")
     
     extras = []
     extras_total = 0.0
