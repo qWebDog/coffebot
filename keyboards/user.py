@@ -1,3 +1,4 @@
+# keyboards/user.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def main_menu_kb(cats: list[dict]) -> InlineKeyboardMarkup:
@@ -10,12 +11,11 @@ def category_items_kb(items: list[dict]) -> InlineKeyboardMarkup:
     kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_main")])
     return kb
 
-def item_volumes_kb(volumes: dict, all_vols: list[dict]) -> InlineKeyboardMarkup:
-    """volumes: {vol_id: price}, all_vols: [{id, name}]"""
-    vol_names = {v["id"]: v["name"] for v in all_vols}
+def item_volumes_kb(volumes: dict) -> InlineKeyboardMarkup:
+    """volumes теперь: {vol_id: {'name': '300мл', 'price': 150.0}}"""
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{vol_names.get(vid, 'Std')} — {int(price)}₽", callback_data=f"vol_{vid}")]
-        for vid, price in volumes.items()
+        [InlineKeyboardButton(text=f"{vol_data['name']} — {int(vol_data['price'])}₽", callback_data=f"vol_{vid}")]
+        for vid, vol_data in volumes.items()
     ])
     kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Отмена", callback_data="back_to_main")])
     return kb
