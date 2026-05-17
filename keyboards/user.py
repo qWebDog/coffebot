@@ -10,8 +10,13 @@ def category_items_kb(items: list[dict]) -> InlineKeyboardMarkup:
     kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_main")])
     return kb
 
-def item_volumes_kb(volumes: dict) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"{vol} — {int(price)}₽", callback_data=f"vol_{vid}")] for vid, price in volumes.items()])
+def item_volumes_kb(volumes: dict, all_vols: list[dict]) -> InlineKeyboardMarkup:
+    """volumes: {vol_id: price}, all_vols: [{id, name}]"""
+    vol_names = {v["id"]: v["name"] for v in all_vols}
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{vol_names.get(vid, 'Std')} — {int(price)}₽", callback_data=f"vol_{vid}")]
+        for vid, price in volumes.items()
+    ])
     kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Отмена", callback_data="back_to_main")])
     return kb
 
