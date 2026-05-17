@@ -19,13 +19,15 @@ class AdminFSM(StatesGroup):
     add_item_vols = State()
     add_item_prices = State()
     add_vol_name = State()
+    set_menu_photo = State()
 
 def is_admin(uid: int) -> bool:
     return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
 
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
-    if not is_admin(msg.from_user.id): return await msg.answer("🚫 Доступ запрещён")
+    if not is_admin(msg.from_user.id):
+        return await msg.answer("🚫 Доступ запрещён")
     sent = await msg.answer("👨‍💼 Админ-панель", reply_markup=admin_main_kb())
     await state.set_state(AdminFSM.main)
     await state.update_data({"cid": msg.chat.id, "mid": sent.message_id})
@@ -35,6 +37,29 @@ async def back_main(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.main)
     await safe_edit(bot, call.from_user.id, call.message.message_id, "👨‍💼 Админ-панель", admin_main_kb())
     await call.answer()
+
+# 🖼 НОВАЯ ФУНКЦИЯ: Фото меню (главное фото)
+@router.callback_query(F.data == "admin_menu_photo")
+async def prompt_menu_photo(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.set_state(AdminFSM.set_menu_photo)
+    await state.update_data({"cid": call.from_user.id, "mid": call.message.message_id})
+    await call.message.edit_text(
+        "📸 Отправьте фото для главного меню (/start):\n\n"
+        "Это фото будет показано при команде /start",
+        reply_markup=back_kb("admin_main")
+    )
+    await call.answer()
+
+@router.message(F.photo, AdminFSM.set_menu_photo)
+async def save_menu_photo(msg: Message, state: FSMContext, bot: Bot):
+    photo_id = msg.photo[-1].file_id
+    # Сохраняем как фото категории "coffee" (оно используется в /start)
+    await db.update_cat_photo("coffee", photo_id)
+    
+    data = await state.get_data()
+    await state.set_state(AdminFSM.main)
+    await safe_edit(bot, data["cid"], data["mid"], "✅ Фото меню обновлено!", admin_main_kb())
+    await msg.delete()
 
 @router.callback_query(F.data == "admin_cats")
 async def show_cats(call: CallbackQuery, bot: Bot):
@@ -55,7 +80,7 @@ async def cat_menu(call: CallbackQuery, bot: Bot):
 async def prompt_photo(call: CallbackQuery, state: FSMContext, bot: Bot):
     slug = call.data.split("_")[2]
     await state.update_data({"action": "photo_cat", "slug": slug, "cid": call.from_user.id, "mid": call.message.message_id})
-    await call.message.edit_text("📸 Отправьте фото для этой категории:", reply_markup=back_kb("admin_cats"))
+    await call.message.edit_text(f"📸 Отправьте фото для категории '{slug}':", reply_markup=back_kb("admin_cats"))
     await call.answer()
 
 @router.message(F.photo, AdminFSM.main)
@@ -63,7 +88,7 @@ async def handle_photo(msg: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     if data.get("action") == "photo_cat":
         await db.update_cat_photo(data["slug"], msg.photo[-1].file_id)
-        await safe_edit(bot, data["cid"], data["mid"], "✅ Фото обновлено!", admin_cat_menu_kb(data["slug"]))
+        await safe_edit(bot, data["cid"], data["mid"], "✅ Фото категории обновлено!", admin_cat_menu_kb(data["slug"]))
         await state.clear()
         await msg.delete()
 
@@ -98,7 +123,8 @@ async def start_add_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     
     await state.set_state(AdminFSM.add_item_name)
     await state.update_data({"cat_id": cat_id, "cid": call.from_user.id, "mid": call.message.message_id})
-    await call.message.edit_text(f"📝 Введите название для '{cat['name'] if cat else slug}':", reply_markup=back_kb(f"admin_cat_{slug}"))
+    name = cat["name"] if cat else slug
+    await call.message.edit_text(f"📝 Введите название для '{name}':", reply_markup=back_kb(f"admin_cat_{slug}"))
     await call.answer()
 
 @router.message(AdminFSM.add_item_name)
@@ -116,8 +142,10 @@ async def toggle_vol(call: CallbackQuery, state: FSMContext, bot: Bot):
     vid = int(call.data.split("_")[-1])
     data = await state.get_data()
     sel = data.get("sel_vols", [])
-    if vid in sel: sel.remove(vid)
-    else: sel.append(vid)
+    if vid in sel:
+        sel.remove(vid)
+    else:
+        sel.append(vid)
     await state.update_data({"sel_vols": sel})
     vols = await db.get_volumes()
     await call.message.edit_reply_markup(reply_markup=admin_toggle_vols_kb(vols, sel))
@@ -126,7 +154,8 @@ async def toggle_vol(call: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "admin_vol_confirm")
 async def confirm_vols(call: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    if not data.get("sel_vols"): return await call.answer("⚠️ Выберите объем", show_alert=True)
+    if not data.get("sel_vols"):
+        return await call.answer("⚠️ Выберите объем", show_alert=True)
     await state.set_state(AdminFSM.add_item_prices)
     vols = await db.get_volumes()
     target_vols = [v for v in vols if v["id"] in data["sel_vols"]]
@@ -136,7 +165,8 @@ async def confirm_vols(call: CallbackQuery, state: FSMContext, bot: Bot):
 
 @router.message(AdminFSM.add_item_prices)
 async def proc_price(msg: Message, state: FSMContext, bot: Bot):
-    if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()): return await msg.answer("❌ Введите число")
+    if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()):
+        return await msg.answer("❌ Введите число")
     data = await state.get_data()
     vol = data["vol_list"][data["vol_idx"]]
     data["vol_prices"][vol["id"]] = float(msg.text.strip())
