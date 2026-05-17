@@ -1,8 +1,10 @@
+# keyboards/admin.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def admin_main_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📂 Категории (фото/товары)", callback_data="admin_cats")],
+        [InlineKeyboardButton(text="🖼 Фото меню", callback_data="admin_menu_photo")],
+        [InlineKeyboardButton(text="📂 Категории", callback_data="admin_cats")],
         [InlineKeyboardButton(text="📏 Объемы", callback_data="admin_vols")],
         [InlineKeyboardButton(text="🥐 Допы", callback_data="admin_extras")],
         [InlineKeyboardButton(text="📊 Продажи", callback_data="admin_sales")]
@@ -15,7 +17,7 @@ def admin_cats_kb(cats: list[dict]) -> InlineKeyboardMarkup:
 
 def admin_cat_menu_kb(slug: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🖼 Заменить фото категории", callback_data=f"admin_photo_{slug}")],
+        [InlineKeyboardButton(text="🖼 Заменить фото", callback_data=f"admin_photo_{slug}")],
         [InlineKeyboardButton(text="➕ Добавить позицию", callback_data=f"admin_add_{slug}")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cats")]
     ])
