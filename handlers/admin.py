@@ -1,7 +1,8 @@
+# handlers/admin.py
 import re, json
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
@@ -18,10 +19,9 @@ class AdminFSM(StatesGroup):
     add_item_vols = State()
     add_item_prices = State()
     add_vol_name = State()
-    add_extra_name = State()
-    add_extra_price = State()
 
-def is_admin(uid: int) -> bool: return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
+def is_admin(uid: int) -> bool:
+    return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
 
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message, state: FSMContext, bot: Bot):
@@ -36,7 +36,6 @@ async def back_main(call: CallbackQuery, state: FSMContext, bot: Bot):
     await safe_edit(bot, call.from_user.id, call.message.message_id, "👨‍💼 Админ-панель", admin_main_kb())
     await call.answer()
 
-# 📂 Категории
 @router.callback_query(F.data == "admin_cats")
 async def show_cats(call: CallbackQuery, bot: Bot):
     cats = await db.get_categories()
@@ -46,7 +45,10 @@ async def show_cats(call: CallbackQuery, bot: Bot):
 @router.callback_query(F.data.startswith("admin_cat_"))
 async def cat_menu(call: CallbackQuery, bot: Bot):
     slug = call.data.split("_")[2]
-    await call.message.edit_text(f"📂 Категория: {slug}", reply_markup=admin_cat_menu_kb(slug))
+    cats = await db.get_categories()
+    cat = next((c for c in cats if c["slug"] == slug), None)
+    name = cat["name"] if cat else slug
+    await call.message.edit_text(f"📂 Категория: {name}", reply_markup=admin_cat_menu_kb(slug))
     await call.answer()
 
 @router.callback_query(F.data.startswith("admin_photo_"))
@@ -62,9 +64,9 @@ async def handle_photo(msg: Message, state: FSMContext, bot: Bot):
     if data.get("action") == "photo_cat":
         await db.update_cat_photo(data["slug"], msg.photo[-1].file_id)
         await safe_edit(bot, data["cid"], data["mid"], "✅ Фото обновлено!", admin_cat_menu_kb(data["slug"]))
-        await state.clear(); await msg.delete()
+        await state.clear()
+        await msg.delete()
 
-# 📏 Объемы
 @router.callback_query(F.data == "admin_vols")
 async def show_vols(call: CallbackQuery, bot: Bot):
     vols = await db.get_volumes()
@@ -87,15 +89,16 @@ async def save_vol(msg: Message, state: FSMContext, bot: Bot):
     await safe_edit(bot, data["cid"], data["mid"], "✅ Объем создан!", admin_vols_kb(vols))
     await msg.delete()
 
-# ☕ Добавление позиции
 @router.callback_query(F.data.startswith("admin_add_"))
 async def start_add_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     slug = call.data.split("_")[2]
     cats = await db.get_categories()
-    cat = next(c for c in cats if c["slug"] == slug)
+    cat = next((c for c in cats if c["slug"] == slug), None)
+    cat_id = cat["id"] if cat else 1
+    
     await state.set_state(AdminFSM.add_item_name)
-    await state.update_data({"cat_id": cat["id"], "cid": call.from_user.id, "mid": call.message.message_id})
-    await call.message.edit_text(f"📝 Введите название напитка для '{cat['name']}':", reply_markup=back_kb(f"admin_cat_{slug}"))
+    await state.update_data({"cat_id": cat_id, "cid": call.from_user.id, "mid": call.message.message_id})
+    await call.message.edit_text(f"📝 Введите название для '{cat['name'] if cat else slug}':", reply_markup=back_kb(f"admin_cat_{slug}"))
     await call.answer()
 
 @router.message(AdminFSM.add_item_name)
@@ -149,7 +152,6 @@ async def proc_price(msg: Message, state: FSMContext, bot: Bot):
         await safe_edit(bot, data["cid"], data["mid"], f"💰 Введите цену для: {next_vol['name']}", back_kb("admin_vols"))
     await msg.delete()
 
-# 📊 Статистика (заглушка для структуры)
 @router.callback_query(F.data == "admin_sales")
 async def show_sales(call: CallbackQuery, bot: Bot):
     await call.message.edit_text("📊 Статистика в разработке\n💰 Сегодня: 0 заказов", reply_markup=back_kb("admin_main"))
