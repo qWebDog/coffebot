@@ -127,8 +127,8 @@ async def select_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     if not vols:
         return await call.answer("⚠️ Нет доступных объемов", show_alert=True)
     
-    all_vols = await db.get_volumes()
-    await call.message.edit_text("📏 Выберите объем:", reply_markup=item_volumes_kb(vols, all_vols))
+    # ✅ Теперь передаём только volumes
+    await call.message.edit_text("📏 Выберите объем:", reply_markup=item_volumes_kb(vols))
     await state.set_state(UserFSM.picking_volume)
     await call.answer()
 
