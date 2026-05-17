@@ -37,12 +37,26 @@ async def render_cart(uid: int, bot: Bot, state: FSMContext):
 @router.message(Command("start"))
 async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
     cats = await db.get_categories()
-    photo = next((c["photo_id"] for c in cats if c["slug"] == "coffee" and c.get("photo_id")), None)
+    # ✅ Ищем фото категории "coffee" безопасно
+    coffee_cat = next((c for c in cats if c["slug"] == "coffee"), None)
+    photo = coffee_cat["photo_id"] if coffee_cat and coffee_cat.get("photo_id") else None
+    
     text = "☕ *Добро пожаловать!* Выберите категорию:"
     kb = main_menu_kb(cats)
     
-    if photo: await msg.answer_photo(photo, text, reply_markup=kb, parse_mode="Markdown")
-    else: await msg.answer(text, reply_markup=kb, parse_mode="Markdown")
+    if photo:
+        await msg.answer_photo(
+            photo=photo,
+            caption=text,
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+    else:
+        await msg.answer(
+            text=text,
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
     
     await state.set_state(UserFSM.browsing)
     await state.update_data({"cart_cid": None, "cart_mid": None})
@@ -50,7 +64,20 @@ async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "back_to_main")
 async def back_main(call: CallbackQuery, bot: Bot, state: FSMContext):
     cats = await db.get_categories()
-    await call.message.edit_text("☕ Выберите категорию:", reply_markup=main_menu_kb(cats))
+    coffee_cat = next((c for c in cats if c["slug"] == "coffee"), None)
+    photo = coffee_cat["photo_id"] if coffee_cat and coffee_cat.get("photo_id") else None
+    
+    if photo:
+        await call.message.edit_media(
+            media=InputMediaPhoto(media=photo),
+            caption="☕ Выберите категорию:",
+            reply_markup=main_menu_kb(cats)
+        )
+    else:
+        await call.message.edit_text(
+            "☕ Выберите категорию:",
+            reply_markup=main_menu_kb(cats)
+        )
     await call.answer()
 
 @router.callback_query(F.data.startswith("cat_"))
@@ -58,7 +85,9 @@ async def show_category(call: CallbackQuery, bot: Bot, state: FSMContext):
     slug = call.data.split("_")[1]
     cats = await db.get_categories()
     cat = next((c for c in cats if c["slug"] == slug), None)
-    if not cat: return await call.answer("❌ Категория не найдена", show_alert=True)
+    
+    if not cat:
+        return await call.answer(f"❌ Категория '{slug}' не найдена", show_alert=True)
     
     items = await db.get_items(cat["id"])
     text = f"📂 *{cat['name']}*\nВыберите напиток:"
@@ -67,10 +96,16 @@ async def show_category(call: CallbackQuery, bot: Bot, state: FSMContext):
     if cat.get("photo_id"):
         await call.message.edit_media(
             media=InputMediaPhoto(media=cat["photo_id"]),
-            caption=text, reply_markup=kb, parse_mode="Markdown"
+            caption=text,
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
     else:
-        await call.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+        await call.message.edit_text(
+            text=text,
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
     await state.update_data({"sel_cat_id": cat["id"]})
     await call.answer()
 
@@ -85,11 +120,13 @@ async def select_item(call: CallbackQuery, state: FSMContext, bot: Bot):
             if i["id"] == item_id:
                 item = i
                 break
-    if not item: return await call.answer("❌ Товар не найден", show_alert=True)
+    if not item:
+        return await call.answer("❌ Товар не найден", show_alert=True)
     
     await state.update_data({"sel_item_id": item_id, "sel_item_name": item["name"], "temp_extras": []})
     vols = item.get("volumes", {})
-    if not vols: return await call.answer("⚠️ Нет доступных объемов", show_alert=True)
+    if not vols:
+        return await call.answer("⚠️ Нет доступных объемов", show_alert=True)
     
     await call.message.edit_text("📏 Выберите объем:", reply_markup=item_volumes_kb(vols))
     await state.set_state(UserFSM.picking_volume)
@@ -110,7 +147,11 @@ async def pick_volume(call: CallbackQuery, state: FSMContext, bot: Bot):
     kb = extras_kb(extras, [])
     
     if photo:
-        await call.message.edit_media(media=InputMediaPhoto(media=photo), caption=text, reply_markup=kb)
+        await call.message.edit_media(
+            media=InputMediaPhoto(media=photo),
+            caption=text,
+            reply_markup=kb
+        )
     else:
         await call.message.edit_text(text, reply_markup=kb)
     await state.set_state(UserFSM.picking_extras)
@@ -121,15 +162,19 @@ async def toggle_extra(call: CallbackQuery, state: FSMContext, bot: Bot):
     eid = int(call.data.split("_")[-1])
     data = await state.get_data()
     sel = data.get("temp_extras", [])
-    if eid in sel: sel.remove(eid)
-    else: sel.append(eid)
+    if eid in sel:
+        sel.remove(eid)
+    else:
+        sel.append(eid)
     await state.update_data({"temp_extras": sel})
     
     extras = await db.get_extras()
     photo = extras[0].get("photo_id") if extras else None
     kb = extras_kb(extras, sel)
-    if photo: await call.message.edit_media(media=InputMediaPhoto(media=photo), reply_markup=kb)
-    else: await call.message.edit_reply_markup(reply_markup=kb)
+    if photo:
+        await call.message.edit_media(media=InputMediaPhoto(media=photo), reply_markup=kb)
+    else:
+        await call.message.edit_reply_markup(reply_markup=kb)
     await call.answer()
 
 @router.callback_query(F.data.in_(["confirm_extras", "no_extras"]), UserFSM.picking_extras)
@@ -142,7 +187,8 @@ async def finalize_add_to_cart(call: CallbackQuery, state: FSMContext, bot: Bot,
     data = await state.get_data()
     item_id = data.get("sel_item_id")
     vol_id = data.get("sel_vol_id")
-    if not item_id or not vol_id: return
+    if not item_id or not vol_id:
+        return
     
     cats = await db.get_categories()
     item_vols = {}
@@ -168,8 +214,13 @@ async def finalize_add_to_cart(call: CallbackQuery, state: FSMContext, bot: Bot,
             
     lines = await db.get_cart(call.from_user.id)
     lines.append({
-        "item_id": item_id, "name": item_name, "vol": vol_name, "vol_id": vol_id,
-        "qty": 1, "extras": extras, "line_total": base_price + extras_total
+        "item_id": item_id,
+        "name": item_name,
+        "vol": vol_name,
+        "vol_id": vol_id,
+        "qty": 1,
+        "extras": extras,
+        "line_total": base_price + extras_total
     })
     await db.save_cart(call.from_user.id, lines)
     
@@ -182,15 +233,19 @@ async def change_qty(call: CallbackQuery, state: FSMContext, bot: Bot):
     action = call.data.split("_")[1]
     idx = int(call.data.split("_")[2])
     lines = await db.get_cart(call.from_user.id)
-    if idx >= len(lines): return
+    if idx >= len(lines):
+        return
     
     line = lines[idx]
     unit_price = line["line_total"] / line["qty"] if line["qty"] > 0 else 0
     
-    if action == "plus": line["qty"] += 1
+    if action == "plus":
+        line["qty"] += 1
     elif action == "minus":
-        if line["qty"] > 1: line["qty"] -= 1
-        else: lines.pop(idx)
+        if line["qty"] > 1:
+            line["qty"] -= 1
+        else:
+            lines.pop(idx)
         
     line["line_total"] = unit_price * line["qty"]
     await db.save_cart(call.from_user.id, lines)
@@ -207,7 +262,8 @@ async def clear_cart(call: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "checkout")
 async def checkout(call: CallbackQuery, state: FSMContext, bot: Bot):
     lines = await db.get_cart(call.from_user.id)
-    if not lines: return await call.answer("Корзина пуста", show_alert=True)
+    if not lines:
+        return await call.answer("Корзина пуста", show_alert=True)
     total = sum(l["line_total"] for l in lines)
     await call.message.edit_text(
         f"💳 Оформление заказа на {int(total)}₽\n(Интеграция ЮKassa будет здесь)",
