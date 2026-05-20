@@ -1,4 +1,3 @@
-# keyboards/user.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def main_menu_kb(cats: list[dict]) -> InlineKeyboardMarkup:
@@ -18,7 +17,7 @@ def extra_cats_kb(cats: list[dict]) -> InlineKeyboardMarkup:
                                 [[InlineKeyboardButton(text="✅ Готово", callback_data="back_to_cart_from_extras")]])
 
 def extras_kb(extras: list[dict]) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"{e['name']} — {int(e['price'])}₽", callback_data=f"add_ex_{e['id']}")] for e in extras] + 
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"{e['name']} ({e.get('volume', 'Стд')}) — {int(e['price'])}₽", callback_data=f"add_ex_{e['id']}")] for e in extras] + 
                                 [[InlineKeyboardButton(text="🔙 Назад к списку допов", callback_data="back_to_excats")]])
 
 def cart_kb(cart_lines: list[dict]) -> InlineKeyboardMarkup:
