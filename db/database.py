@@ -1,3 +1,4 @@
+# db/database.py
 import aiosqlite
 import json
 from config import settings
@@ -19,12 +20,16 @@ class Database:
             CREATE TABLE IF NOT EXISTS volumes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE);
             CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT, photo_id TEXT, volumes_json TEXT, FOREIGN KEY(category_id) REFERENCES categories(id));
             CREATE TABLE IF NOT EXISTS extra_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, photo_id TEXT);
-            CREATE TABLE IF NOT EXISTS extras (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT, price REAL, FOREIGN KEY(category_id) REFERENCES extra_categories(id));
+            CREATE TABLE IF NOT EXISTS extras (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT, volume TEXT, price REAL, FOREIGN KEY(category_id) REFERENCES extra_categories(id));
             CREATE TABLE IF NOT EXISTS cart (user_id INTEGER PRIMARY KEY, data_json TEXT);
             CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, user_id INTEGER, data_json TEXT, total REAL, status TEXT, pickup_time TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS bot_settings (key TEXT PRIMARY KEY, value TEXT);
         """)
-        # Дефолтные категории
+        
+        # Миграция для старых БД
+        try: await self.conn.execute("ALTER TABLE extras ADD COLUMN volume TEXT DEFAULT 'Стандарт'")
+        except: pass
+
         for slug, name in [("coffee", "Кофе"), ("non_coffee", "Не кофе"), ("tea", "Чай"), ("cold", "Холодные"), ("lemonade", "Лимонады")]:
             try: await self.conn.execute("INSERT OR IGNORE INTO categories (slug, name) VALUES (?, ?)", (slug, name))
             except: pass
@@ -62,9 +67,9 @@ class Database:
     async def add_extra_category(self, name: str):
         await self.conn.execute("INSERT INTO extra_categories (name) VALUES (?)", (name,)); await self.conn.commit()
     async def get_extras_by_category(self, cat_id: int):
-        return [{"id": r[0], "name": r[2], "price": r[3]} for r in await (await self.conn.execute("SELECT id, category_id, name, price FROM extras WHERE category_id=?", (cat_id,))).fetchall()]
-    async def add_extra(self, cat_id: int, name: str, price: float):
-        await self.conn.execute("INSERT INTO extras (category_id, name, price) VALUES (?,?,?)", (cat_id, name, price)); await self.conn.commit()
+        return [{"id": r[0], "name": r[2], "volume": r[3], "price": r[4]} for r in await (await self.conn.execute("SELECT id, category_id, name, volume, price FROM extras WHERE category_id=?", (cat_id,))).fetchall()]
+    async def add_extra(self, cat_id: int, name: str, price: float, volume: str = "Стандарт"):
+        await self.conn.execute("INSERT INTO extras (category_id, name, volume, price) VALUES (?,?,?,?)", (cat_id, name, volume, price)); await self.conn.commit()
     async def delete_extra(self, eid: int):
         await self.conn.execute("DELETE FROM extras WHERE id=?", (eid,)); await self.conn.commit()
 
