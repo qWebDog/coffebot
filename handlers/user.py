@@ -1,7 +1,7 @@
-import logging
+# handlers/user.py
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message, InputMediaPhoto, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery, Message, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
@@ -26,26 +26,34 @@ class UserFSM(StatesGroup):
 async def render_cart(uid: int, bot: Bot, state: FSMContext):
     lines = await db.get_cart(uid)
     total = sum(l["line_total"] * l["qty"] for l in lines)
-    text = "🛒 *Ваш заказ:*\n" + "\n".join(
-        f"• {l['name']} ({l['vol']}) x{l['qty']} = {int(l['line_total']*l['qty'])}₽" for l in lines
-    ) + f"\n\n💰 *Итого: {int(total)}₽*"
+    
+    text = "🛒 <b>Ваш заказ:</b>\n\n"
+    for l in lines:
+        line_sum = int(l["line_total"] * l["qty"])
+        text += f"{l['name']} х{l['qty']} = {line_sum}₽\n"
+        if l.get("extras"):
+            extras_str = ", ".join(e["name"] for e in l["extras"])
+            text += f"      -доп: {extras_str}\n"
+        text += "\n"
+    text += f"💰 <b>Итого: {int(total)}₽</b>"
+    
     data = await state.get_data()
     cid, mid = data.get("cart_cid"), data.get("cart_mid")
     kb = cart_kb(lines)
     if cid and mid:
         await safe_edit(bot, cid, mid, text, kb)
     else:
-        sent = await bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+        sent = await bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
         await state.update_data({"cart_cid": uid, "cart_mid": sent.message_id})
 
 @router.message(Command("start"))
 async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
     cats = await db.get_categories()
     menu_photo = await db.get_setting("menu_photo")
-    text = "☕ *Добро пожаловать!* Выберите категорию:"
+    text = "☕ <b>Добро пожаловать!</b> Выберите категорию:"
     kb = main_menu_kb(cats)
-    if menu_photo: await msg.answer_photo(photo=menu_photo, caption=text, reply_markup=kb, parse_mode="Markdown")
-    else: await msg.answer(text=text, reply_markup=kb, parse_mode="Markdown")
+    if menu_photo: await msg.answer_photo(photo=menu_photo, caption=text, reply_markup=kb, parse_mode="HTML")
+    else: await msg.answer(text=text, reply_markup=kb, parse_mode="HTML")
     await state.set_state(UserFSM.browsing)
     await state.update_data({"cart_cid": None, "cart_mid": None})
 
@@ -53,8 +61,8 @@ async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
 async def back_main(call: CallbackQuery, bot: Bot, state: FSMContext):
     cats = await db.get_categories()
     menu_photo = await db.get_setting("menu_photo")
-    if menu_photo: await call.message.edit_media(media=InputMediaPhoto(media=menu_photo), caption="☕ Выберите категорию:", reply_markup=main_menu_kb(cats))
-    else: await call.message.edit_text("☕ Выберите категорию:", reply_markup=main_menu_kb(cats))
+    if menu_photo: await call.message.edit_media(media=InputMediaPhoto(media=menu_photo), caption="☕ <b>Выберите категорию:</b>", reply_markup=main_menu_kb(cats), parse_mode="HTML")
+    else: await call.message.edit_text("☕ <b>Выберите категорию:</b>", reply_markup=main_menu_kb(cats), parse_mode="HTML")
     await call.answer()
 
 @router.callback_query(F.data.startswith("cat_"))
@@ -64,10 +72,10 @@ async def show_category(call: CallbackQuery, bot: Bot, state: FSMContext):
     cat = next((c for c in cats if c["slug"] == slug), None)
     if not cat: return await call.answer("❌ Категория не найдена", show_alert=True)
     items = await db.get_items(cat["id"])
-    text = f"📂 *{cat['name']}*\nВыберите напиток:"
+    text = f"📂 <b>{cat['name']}</b>\nВыберите напиток:"
     kb = category_items_kb(items)
-    if cat.get("photo_id"): await call.message.edit_media(media=InputMediaPhoto(media=cat["photo_id"]), caption=text, reply_markup=kb, parse_mode="Markdown")
-    else: await call.message.edit_text(text=text, reply_markup=kb, parse_mode="Markdown")
+    if cat.get("photo_id"): await call.message.edit_media(media=InputMediaPhoto(media=cat["photo_id"]), caption=text, reply_markup=kb, parse_mode="HTML")
+    else: await call.message.edit_text(text=text, reply_markup=kb, parse_mode="HTML")
     await state.update_data({"sel_cat_id": cat["id"]})
     await call.answer()
 
@@ -83,25 +91,19 @@ async def select_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.update_data({"sel_item_id": item_id, "sel_item_name": item["name"], "temp_extras": []})
     vols = item.get("volumes", {})
     if not vols: return await call.answer("⚠️ Нет доступных объемов", show_alert=True)
-    try: await call.message.edit_caption(caption="📏 Выберите объем:", reply_markup=item_volumes_kb(vols))
-    except TelegramBadRequest: await call.message.delete(); await call.message.answer("📏 Выберите объем:", reply_markup=item_volumes_kb(vols))
+    try: await call.message.edit_caption(caption="📏 <b>Выберите объем:</b>", reply_markup=item_volumes_kb(vols), parse_mode="HTML")
+    except TelegramBadRequest: await call.message.delete(); await call.message.answer("📏 <b>Выберите объем:</b>", reply_markup=item_volumes_kb(vols), parse_mode="HTML")
     await state.set_state(UserFSM.picking_volume)
     await call.answer()
 
 @router.callback_query(F.data.startswith("vol_"), UserFSM.picking_volume)
 async def pick_volume(call: CallbackQuery, state: FSMContext, bot: Bot):
     vol_id = int(call.data.split("_")[1])
-    await state.update_data({"sel_vol_id": vol_id, "temp_extras": []})
-    cats = await db.get_categories()
-    # Находим цены и имя для финализации
-    item_id = call.data.split("_") # заглушка, берем из state
-    await state.set_state(UserFSM.picking_extras) # Упрощаем: сразу в допы или в корзину
-    await finalize_add_to_cart(call, state, bot, [])
+    await state.update_data({"sel_vol_id": vol_id})
+    await finalize_add_to_cart(call, state, bot)
     return
 
-# ⚠️ Упрощенный поток: объем -> сразу в корзину с вопросом про допы
-# Но по ТЗ нужно: к каждой позиции можно добавить доп. Реализуем через кнопку в корзине.
-async def finalize_add_to_cart(call: CallbackQuery, state: FSMContext, bot: Bot, extra_ids: list[int]):
+async def finalize_add_to_cart(call: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
     item_id, vol_id = data.get("sel_item_id"), data.get("sel_vol_id")
     if not item_id or not vol_id: return
@@ -149,7 +151,7 @@ async def start_adding_extras(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.update_data({"cart_edit_idx": idx})
     cats = await db.get_extra_categories()
     if not cats: return await call.answer("⚠️ Допы пока не добавлены", show_alert=True)
-    await call.message.edit_text("📦 Выберите категорию допов:", reply_markup=extra_cats_kb(cats))
+    await call.message.edit_text("📦 <b>Выберите категорию допов:</b>", reply_markup=extra_cats_kb(cats), parse_mode="HTML")
     await state.set_state(UserFSM.editing_item_extras)
     await call.answer()
 
@@ -161,12 +163,9 @@ async def show_extras_for_cat(call: CallbackQuery, state: FSMContext, bot: Bot):
     if not cat: return
     extras = await db.get_extras_by_category(cat_id)
     if not extras: return await call.answer("В этой категории пока пусто", show_alert=True)
-    
     kb = extras_kb(extras)
-    if cat.get("photo_id"):
-        await call.message.edit_media(media=InputMediaPhoto(media=cat["photo_id"]), caption="🥐 Выберите доп:", reply_markup=kb)
-    else:
-        await call.message.edit_text("🥐 Выберите доп:", reply_markup=kb)
+    if cat.get("photo_id"): await call.message.edit_media(media=InputMediaPhoto(media=cat["photo_id"]), caption="🥐 <b>Выберите доп:</b>", reply_markup=kb, parse_mode="HTML")
+    else: await call.message.edit_text("🥐 <b>Выберите доп:</b>", reply_markup=kb, parse_mode="HTML")
     await state.update_data({"sel_extra_cat_id": cat_id})
     await call.answer()
 
@@ -178,11 +177,9 @@ async def add_extra_to_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     if idx is None: return
     lines = await db.get_cart(call.from_user.id)
     if idx >= len(lines): return
-    
     extras_list = await db.get_extras_by_category(data["sel_extra_cat_id"])
     extra = next((e for e in extras_list if e["id"] == eid), None)
     if not extra: return
-    
     lines[idx]["extras"].append({"id": extra["id"], "name": extra["name"], "price": extra["price"]})
     lines[idx]["line_total"] += extra["price"]
     await db.save_cart(call.from_user.id, lines)
@@ -203,21 +200,22 @@ async def clear_cart(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.clear()
     await call.answer("🗑 Очищено")
 
-# ⏱ ВЫБОР ВРЕМЕНИ (МСК)
+# ⏱ ВЫБОР ВРЕМЕНИ
 @router.callback_query(F.data == "checkout")
 async def checkout(call: CallbackQuery, state: FSMContext, bot: Bot):
     lines = await db.get_cart(call.from_user.id)
     if not lines: return await call.answer("Корзина пуста", show_alert=True)
     await state.update_data({"time_offset": 5})
-    await call.message.edit_text("🕒 Выберите удобное время для получения:", reply_markup=time_kb(5))
+    await call.message.edit_text("🕒 <b>Выберите время получения:</b>", reply_markup=time_kb(5), parse_mode="HTML")
     await state.set_state(UserFSM.selecting_time)
     await call.answer()
 
 @router.callback_query(F.data == "time_plus")
 async def time_plus(call: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    await state.update_data({"time_offset": data.get("time_offset", 5) + 5})
-    await call.message.edit_reply_markup(reply_markup=time_kb(data.get("time_offset", 5) + 5))
+    new_offset = data.get("time_offset", 5) + 5
+    await state.update_data({"time_offset": new_offset})
+    await call.message.edit_reply_markup(reply_markup=time_kb(new_offset))
     await call.answer()
 
 @router.callback_query(F.data == "time_minus")
@@ -236,11 +234,7 @@ async def time_confirm(call: CallbackQuery, state: FSMContext, bot: Bot):
     target = datetime.now(tz=MSK) + timedelta(minutes=offset)
     time_str = target.strftime("%H:%M")
     await state.update_data({"pickup_time": time_str})
-    await call.message.edit_text(
-        f"⏰ Заказ готов к: *{time_str}*\n\n🤔 Хотите выбрать что-то ещё?",
-        reply_markup=post_time_question_kb(),
-        parse_mode="Markdown"
-    )
+    await call.message.edit_text(f"⏰ <b>Заказ готов к:</b> {time_str}\n\n🤔 Хотите выбрать что-то ещё?", reply_markup=post_time_question_kb(), parse_mode="HTML")
     await state.set_state(UserFSM.after_time)
     await call.answer()
 
@@ -248,18 +242,16 @@ async def time_confirm(call: CallbackQuery, state: FSMContext, bot: Bot):
 async def after_time_menu(call: CallbackQuery, state: FSMContext, bot: Bot):
     cats = await db.get_categories()
     menu_photo = await db.get_setting("menu_photo")
-    if menu_photo: await call.message.edit_media(media=InputMediaPhoto(media=menu_photo), caption="☕ Выберите категорию:", reply_markup=main_menu_kb(cats))
-    else: await call.message.edit_text("☕ Выберите категорию:", reply_markup=main_menu_kb(cats))
+    if menu_photo: await call.message.edit_media(media=InputMediaPhoto(media=menu_photo), caption="☕ <b>Выберите категорию:</b>", reply_markup=main_menu_kb(cats), parse_mode="HTML")
+    else: await call.message.edit_text("☕ <b>Выберите категорию:</b>", reply_markup=main_menu_kb(cats), parse_mode="HTML")
     await state.set_state(UserFSM.browsing)
     await call.answer()
 
 @router.callback_query(F.data == "after_time_pay")
 async def after_time_pay(call: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    await call.message.edit_text(f"💳 Переход к оплате...\n🕒 Время: {data.get('pickup_time')}\n(ЮKassa подключается здесь)")
+    await call.message.edit_text(f"💳 <b>Переход к оплате...</b>\n🕒 Время: {data.get('pickup_time')}\n(ЮKassa подключается здесь)", parse_mode="HTML")
     await call.answer("✅ Готово к оплате")
-    # Здесь будет создание заказа и генерация ссылки
-    # await db.create_order(...)
 
 @router.callback_query(F.data == "back_to_cart")
 async def back_to_cart(call: CallbackQuery, state: FSMContext, bot: Bot):
