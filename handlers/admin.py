@@ -170,3 +170,92 @@ async def save_vol(msg: Message, state: FSMContext, bot: Bot):
 async def show_sales(call: CallbackQuery, bot: Bot):
     await call.message.edit_text("📊 Статистика в разработке", reply_markup=back_kb("admin_main"))
     await call.answer()
+
+# 🥐 КАТЕГОРИИ ДОПОВ
+@router.callback_query(F.data == "admin_extracats")
+async def show_extracats(call: CallbackQuery, bot: Bot):
+    cats = await db.get_extra_categories()
+    await call.message.edit_text("📂 Категории допов", reply_markup=admin_extracats_kb(cats))
+    await call.answer()
+
+@router.callback_query(F.data == "admin_create_extracat")
+async def prompt_extracat(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.update_data({"action": "new_extracat", "cid": call.from_user.id, "mid": call.message.message_id})
+    await call.message.edit_text("📝 Введите название категории допов:", reply_markup=back_kb("admin_extracats"))
+    await call.answer()
+
+@router.message(F.text, AdminFSM.main)
+async def handle_text(msg: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    if data.get("action") == "new_extracat":
+        await db.add_extra_category(msg.text.strip())
+        await state.clear()
+        await safe_edit(bot, data["cid"], data["mid"], "✅ Категория создана!", admin_extracats_kb(await db.get_extra_categories()))
+        await msg.delete()
+
+@router.callback_query(F.data.startswith("admin_extracat_"))
+async def extracat_menu(call: CallbackQuery, bot: Bot):
+    cat_id = int(call.data.split("_")[2])
+    await call.message.edit_text("📂 Категория допов", reply_markup=admin_extracat_menu_kb(cat_id))
+    await call.answer()
+
+@router.callback_query(F.data.startswith("admin_extraphoto_"))
+async def prompt_extraphoto(call: CallbackQuery, state: FSMContext, bot: Bot):
+    cat_id = int(call.data.split("_")[2])
+    await state.update_data({"action": "extracat_photo", "cat_id": cat_id, "cid": call.from_user.id, "mid": call.message.message_id})
+    await call.message.edit_text("📸 Отправьте фото для категории:", reply_markup=back_kb("admin_extracats"))
+    await call.answer()
+
+@router.message(F.photo, AdminFSM.main)
+async def handle_photo(msg: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    if data.get("action") == "extracat_photo":
+        await db.update_extra_cat_photo(data["cat_id"], msg.photo[-1].file_id)
+        await safe_edit(bot, data["cid"], data["mid"], "✅ Фото обновлено!", admin_extracat_menu_kb(data["cat_id"]))
+        await state.clear(); await msg.delete()
+    elif data.get("action") == "photo_cat":
+        await db.update_cat_photo(data["slug"], msg.photo[-1].file_id)
+        await safe_edit(bot, data["cid"], data["mid"], "✅ Фото категории обновлено!", admin_cat_menu_kb(data["slug"]))
+        await state.clear(); await msg.delete()
+
+# 📝 ДОПЫ
+@router.callback_query(F.data == "admin_extras")
+async def show_extras(call: CallbackQuery, bot: Bot):
+    # Показываем все допы для быстрого удаления/редактирования
+    all_extras = []
+    for cat in await db.get_extra_categories():
+        for ex in await db.get_extras_by_category(cat["id"]):
+            all_extras.append({"id": ex["id"], "name": ex["name"], "price": ex["price"], "cat": cat["name"]})
+    await call.message.edit_text("📝 Список допов", reply_markup=admin_extras_kb(all_extras))
+    await call.answer()
+
+@router.callback_query(F.data.startswith("admin_addextra_"))
+async def prompt_extra(call: CallbackQuery, state: FSMContext, bot: Bot):
+    cat_id = int(call.data.split("_")[2])
+    await state.update_data({"action": "new_extra", "cat_id": cat_id, "cid": call.from_user.id, "mid": call.message.message_id})
+    await call.message.edit_text("💬 Введите: НАЗВАНИЕ ЦЕНА (напр. Сироп 50)", reply_markup=back_kb(f"admin_extracat_{cat_id}"))
+    await call.answer()
+
+@router.message(F.text, AdminFSM.main)
+async def handle_extra_text(msg: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    if data.get("action") == "new_extra":
+        parts = msg.text.strip().split()
+        if len(parts) >= 2:
+            name = parts[0]
+            try: price = float(parts[-1])
+            except: return await msg.answer("❌ Цена должна быть числом")
+            await db.add_extra(data["cat_id"], name, price)
+            await state.clear()
+            await safe_edit(bot, data["cid"], data["mid"], "✅ Доп добавлен!", admin_extras_kb(await db.get_extras_by_category(data["cat_id"])))
+        await msg.delete()
+
+@router.callback_query(F.data.startswith("admin_delextra_"))
+async def del_extra(call: CallbackQuery, bot: Bot):
+    await db.delete_extra(int(call.data.split("_")[2]))
+    all_extras = []
+    for cat in await db.get_extra_categories():
+        for ex in await db.get_extras_by_category(cat["id"]):
+            all_extras.append({"id": ex["id"], "name": ex["name"], "price": ex["price"], "cat": cat["name"]})
+    await call.message.edit_text("📝 Список допов", reply_markup=admin_extras_kb(all_extras))
+    await call.answer()
