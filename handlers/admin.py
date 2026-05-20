@@ -1,8 +1,7 @@
-# handlers/admin.py
 import re, json
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message, InputMediaPhoto
+from aiogram.types import CallbackQuery, Message, InputMediaPhoto, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
@@ -20,6 +19,10 @@ class AdminFSM(StatesGroup):
     add_item_vols = State()
     add_item_prices = State()
     add_vol_name = State()
+    # 🆕 Новые состояния для допов
+    add_extra_name = State()
+    add_extra_volume = State()
+    add_extra_price = State()
 
 def is_admin(uid: int) -> bool:
     return str(uid) in [x.strip() for x in settings.admin_ids.split(",") if x.strip()]
@@ -37,6 +40,7 @@ async def back_main(call: CallbackQuery, state: FSMContext, bot: Bot):
     await safe_edit(bot, call.from_user.id, call.message.message_id, "👨‍💼 Админ-панель", admin_main_kb())
     await call.answer()
 
+# 🖼 Фото меню
 @router.callback_query(F.data == "admin_menu_photo")
 async def prompt_menu_photo(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.set_menu_photo)
@@ -52,6 +56,7 @@ async def save_menu_photo(msg: Message, state: FSMContext, bot: Bot):
     await safe_edit(bot, data["cid"], data["mid"], "✅ Фото меню обновлено!", admin_main_kb())
     await msg.delete()
 
+# 📂 Категории меню
 @router.callback_query(F.data == "admin_cats")
 async def show_cats(call: CallbackQuery, bot: Bot):
     cats = await db.get_categories()
@@ -80,16 +85,19 @@ async def handle_photo(msg: Message, state: FSMContext, bot: Bot):
     if data.get("action") == "photo_cat":
         await db.update_cat_photo(data["slug"], msg.photo[-1].file_id)
         await safe_edit(bot, data["cid"], data["mid"], "✅ Фото категории обновлено!", admin_cat_menu_kb(data["slug"]))
-        await state.clear()
-        await msg.delete()
+        await state.clear(); await msg.delete()
+    elif data.get("action") == "extracat_photo":
+        await db.update_extra_cat_photo(data["cat_id"], msg.photo[-1].file_id)
+        await safe_edit(bot, data["cid"], data["mid"], "✅ Фото доп-категории обновлено!", admin_extracat_menu_kb(data["cat_id"]))
+        await state.clear(); await msg.delete()
 
+# ☕ Добавление позиции меню
 @router.callback_query(F.data.startswith("admin_add_"))
 async def start_add_item(call: CallbackQuery, state: FSMContext, bot: Bot):
     slug = "_".join(call.data.split("_")[2:])
     cats = await db.get_categories()
     cat = next((c for c in cats if c["slug"] == slug), None)
     cat_id = cat["id"] if cat else 1
-    
     await state.set_state(AdminFSM.add_item_name)
     await state.update_data({"cat_id": cat_id, "cid": call.from_user.id, "mid": call.message.message_id})
     name = cat["name"] if cat else slug
@@ -136,7 +144,6 @@ async def proc_price(msg: Message, state: FSMContext, bot: Bot):
     data["vol_prices"][vol["id"]] = float(msg.text.strip())
     data["vol_idx"] += 1
     await state.update_data(data)
-    
     if data["vol_idx"] >= len(data["vol_list"]):
         await db.add_item(data["cat_id"], data["item_name"], json.dumps(data["vol_prices"]))
         await state.set_state(AdminFSM.main)
@@ -146,6 +153,7 @@ async def proc_price(msg: Message, state: FSMContext, bot: Bot):
         await safe_edit(bot, data["cid"], data["mid"], f"💰 Цена для: {next_vol['name']}", back_kb("admin_vols"))
     await msg.delete()
 
+# 📏 Объемы
 @router.callback_query(F.data == "admin_vols")
 async def show_vols(call: CallbackQuery, bot: Bot):
     await call.message.edit_text("📏 Объемы", reply_markup=admin_vols_kb(await db.get_volumes()))
@@ -165,11 +173,6 @@ async def save_vol(msg: Message, state: FSMContext, bot: Bot):
     await state.set_state(AdminFSM.main)
     await safe_edit(bot, data["cid"], data["mid"], "✅ Создано!", admin_vols_kb(await db.get_volumes()))
     await msg.delete()
-
-@router.callback_query(F.data == "admin_sales")
-async def show_sales(call: CallbackQuery, bot: Bot):
-    await call.message.edit_text("📊 Статистика в разработке", reply_markup=back_kb("admin_main"))
-    await call.answer()
 
 # 🥐 КАТЕГОРИИ ДОПОВ
 @router.callback_query(F.data == "admin_extracats")
@@ -206,56 +209,71 @@ async def prompt_extraphoto(call: CallbackQuery, state: FSMContext, bot: Bot):
     await call.message.edit_text("📸 Отправьте фото для категории:", reply_markup=back_kb("admin_extracats"))
     await call.answer()
 
-@router.message(F.photo, AdminFSM.main)
-async def handle_photo(msg: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    if data.get("action") == "extracat_photo":
-        await db.update_extra_cat_photo(data["cat_id"], msg.photo[-1].file_id)
-        await safe_edit(bot, data["cid"], data["mid"], "✅ Фото обновлено!", admin_extracat_menu_kb(data["cat_id"]))
-        await state.clear(); await msg.delete()
-    elif data.get("action") == "photo_cat":
-        await db.update_cat_photo(data["slug"], msg.photo[-1].file_id)
-        await safe_edit(bot, data["cid"], data["mid"], "✅ Фото категории обновлено!", admin_cat_menu_kb(data["slug"]))
-        await state.clear(); await msg.delete()
+# 📝 СОЗДАНИЕ ДОПА (название → объем → цена)
+@router.callback_query(F.data.startswith("admin_addextra_"))
+async def start_add_extra(call: CallbackQuery, state: FSMContext, bot: Bot):
+    cat_id = int(call.data.split("_")[2])
+    await state.set_state(AdminFSM.add_extra_name)
+    await state.update_data({"extra_cat_id": cat_id, "cid": call.from_user.id, "mid": call.message.message_id})
+    await call.message.edit_text("📝 Введите название дополнения:", reply_markup=back_kb("admin_extracats"))
+    await call.answer()
 
-# 📝 ДОПЫ
+@router.message(AdminFSM.add_extra_name)
+async def proc_extra_name(msg: Message, state: FSMContext, bot: Bot):
+    await state.update_data({"extra_name": msg.text.strip()})
+    await state.set_state(AdminFSM.add_extra_volume)
+    data = await state.get_data()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Пропустить объем", callback_data="skip_extra_vol")],
+        [InlineKeyboardButton(text="🔙 Отмена", callback_data="admin_extracats")]
+    ])
+    await safe_edit(bot, data["cid"], data["mid"], "📏 Введите объем (напр. 30мл, шот) или нажмите пропустить:", kb)
+    await msg.delete()
+
+@router.callback_query(F.data == "skip_extra_vol")
+async def skip_extra_vol(call: CallbackQuery, state: FSMContext, bot: Bot):
+    await state.update_data({"extra_volume": "Стандарт"})
+    await state.set_state(AdminFSM.add_extra_price)
+    data = await state.get_data()
+    await safe_edit(bot, call.from_user.id, call.message.message_id, "💰 Введите цену для дополнения:", back_kb("admin_extracats"))
+    await call.answer()
+
+@router.message(AdminFSM.add_extra_volume)
+async def proc_extra_volume(msg: Message, state: FSMContext, bot: Bot):
+    await state.update_data({"extra_volume": msg.text.strip()})
+    await state.set_state(AdminFSM.add_extra_price)
+    data = await state.get_data()
+    await safe_edit(bot, data["cid"], data["mid"], "💰 Введите цену для дополнения:", back_kb("admin_extracats"))
+    await msg.delete()
+
+@router.message(AdminFSM.add_extra_price)
+async def proc_extra_price(msg: Message, state: FSMContext, bot: Bot):
+    if not re.match(r"^\d+(\.\d+)?$", msg.text.strip()): return await msg.answer("❌ Введите корректное число")
+    data = await state.get_data()
+    await db.add_extra(data["extra_cat_id"], data["extra_name"], float(msg.text.strip()), data.get("extra_volume", "Стандарт"))
+    await state.set_state(AdminFSM.main)
+    extras = await db.get_extras_by_category(data["extra_cat_id"])
+    kb = admin_extras_kb(extras) if extras else admin_extracat_menu_kb(data["extra_cat_id"])
+    await safe_edit(bot, data["cid"], data["mid"], "✅ Дополнение сохранено!", kb)
+    await msg.delete()
+
+# 📝 СПИСОК ДОПОВ & УДАЛЕНИЕ
 @router.callback_query(F.data == "admin_extras")
 async def show_extras(call: CallbackQuery, bot: Bot):
-    # Показываем все допы для быстрого удаления/редактирования
     all_extras = []
     for cat in await db.get_extra_categories():
         for ex in await db.get_extras_by_category(cat["id"]):
-            all_extras.append({"id": ex["id"], "name": ex["name"], "price": ex["price"], "cat": cat["name"]})
+            all_extras.append({"id": ex["id"], "name": ex["name"], "volume": ex["volume"], "price": ex["price"], "cat": cat["name"]})
     await call.message.edit_text("📝 Список допов", reply_markup=admin_extras_kb(all_extras))
     await call.answer()
-
-@router.callback_query(F.data.startswith("admin_addextra_"))
-async def prompt_extra(call: CallbackQuery, state: FSMContext, bot: Bot):
-    cat_id = int(call.data.split("_")[2])
-    await state.update_data({"action": "new_extra", "cat_id": cat_id, "cid": call.from_user.id, "mid": call.message.message_id})
-    await call.message.edit_text("💬 Введите: НАЗВАНИЕ ЦЕНА (напр. Сироп 50)", reply_markup=back_kb(f"admin_extracat_{cat_id}"))
-    await call.answer()
-
-@router.message(F.text, AdminFSM.main)
-async def handle_extra_text(msg: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    if data.get("action") == "new_extra":
-        parts = msg.text.strip().split()
-        if len(parts) >= 2:
-            name = parts[0]
-            try: price = float(parts[-1])
-            except: return await msg.answer("❌ Цена должна быть числом")
-            await db.add_extra(data["cat_id"], name, price)
-            await state.clear()
-            await safe_edit(bot, data["cid"], data["mid"], "✅ Доп добавлен!", admin_extras_kb(await db.get_extras_by_category(data["cat_id"])))
-        await msg.delete()
 
 @router.callback_query(F.data.startswith("admin_delextra_"))
 async def del_extra(call: CallbackQuery, bot: Bot):
     await db.delete_extra(int(call.data.split("_")[2]))
-    all_extras = []
-    for cat in await db.get_extra_categories():
-        for ex in await db.get_extras_by_category(cat["id"]):
-            all_extras.append({"id": ex["id"], "name": ex["name"], "price": ex["price"], "cat": cat["name"]})
-    await call.message.edit_text("📝 Список допов", reply_markup=admin_extras_kb(all_extras))
+    await call.message.edit_text("📝 Список допов", reply_markup=admin_extras_kb([{"id": e["id"], "name": e["name"], "price": e["price"], "cat": "Все"} for c in await db.get_extra_categories() for e in await db.get_extras_by_category(c["id"])]))
+    await call.answer()
+
+@router.callback_query(F.data == "admin_sales")
+async def show_sales(call: CallbackQuery, bot: Bot):
+    await call.message.edit_text("📊 Статистика в разработке", reply_markup=back_kb("admin_main"))
     await call.answer()
